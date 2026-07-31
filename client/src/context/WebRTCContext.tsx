@@ -373,6 +373,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         handlePeerDisconnect();
       }
     };
+
+    pc.ondatachannel = (event) => {
+      console.log('Received peer Data Channel via pc.ondatachannel');
+      setupDataChannel(event.channel);
+    };
   };
 
   const initiateWebRTCConnection = async () => {
@@ -394,15 +399,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  // If remote peer creates channel, we handle it on connection listener
-  useEffect(() => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.ondatachannel = (event) => {
-        console.log('Received peer Data Channel');
-        setupDataChannel(event.channel);
-      };
-    }
-  }, [remoteStream]);
+
 
   // Setup DataChannel Listeners and Handlers
   const setupDataChannel = (dc: RTCDataChannel) => {
@@ -465,7 +462,15 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         break;
 
       case 'draw-stroke':
-        setCanvasStrokes(prev => [...prev, payload.stroke]);
+        setCanvasStrokes(prev => {
+          const idx = prev.findIndex(s => s.id === payload.stroke.id);
+          if (idx !== -1) {
+            const next = [...prev];
+            next[idx] = payload.stroke;
+            return next;
+          }
+          return [...prev, payload.stroke];
+        });
         break;
 
       case 'draw-clear':
@@ -498,11 +503,50 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         break;
 
       case 'game-action':
-        setGameState(prev => ({ ...prev, ...payload }));
+        // Map relative me/peer states to local states
+        const swappedGame: any = { ...payload };
+        if ('tictactoeTurn' in payload) {
+          swappedGame.tictactoeTurn = payload.tictactoeTurn === 'me' ? 'peer' : 'me';
+        }
+        if ('rpsChoiceMe' in payload) {
+          swappedGame.rpsChoicePeer = payload.rpsChoiceMe;
+          delete swappedGame.rpsChoiceMe;
+        }
+        if ('rpsChoicePeer' in payload) {
+          swappedGame.rpsChoiceMe = payload.rpsChoicePeer;
+          delete swappedGame.rpsChoicePeer;
+        }
+        if ('memoryActiveTurn' in payload) {
+          swappedGame.memoryActiveTurn = payload.memoryActiveTurn === 'me' ? 'peer' : 'me';
+        }
+        if ('memoryScore' in payload) {
+          swappedGame.memoryScore = {
+            me: payload.memoryScore.peer,
+            peer: payload.memoryScore.me
+          };
+        }
+        setGameState(prev => ({ ...prev, ...swappedGame }));
         break;
 
       case 'quiz-action':
-        setQuizState(prev => ({ ...prev, ...payload }));
+        const swappedQuiz: any = { ...payload };
+        if ('mySelection' in payload) {
+          swappedQuiz.peerSelection = payload.mySelection;
+          delete swappedQuiz.mySelection;
+        }
+        if ('peerSelection' in payload) {
+          swappedQuiz.mySelection = payload.peerSelection;
+          delete swappedQuiz.peerSelection;
+        }
+        if ('myScore' in payload) {
+          swappedQuiz.peerScore = payload.myScore;
+          delete swappedQuiz.myScore;
+        }
+        if ('peerScore' in payload) {
+          swappedQuiz.myScore = payload.peerScore;
+          delete swappedQuiz.peerScore;
+        }
+        setQuizState(prev => ({ ...prev, ...swappedQuiz }));
         break;
 
       case 'quiz-reset':
@@ -517,7 +561,24 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         break;
 
       case 'meter-action':
-        setMeterState(prev => ({ ...prev, ...payload }));
+        const swappedMeter: any = { ...payload };
+        if ('questionsAnswersMe' in payload) {
+          swappedMeter.questionsAnswersPeer = payload.questionsAnswersMe;
+          delete swappedMeter.questionsAnswersMe;
+        }
+        if ('questionsAnswersPeer' in payload) {
+          swappedMeter.questionsAnswersMe = payload.questionsAnswersPeer;
+          delete swappedMeter.questionsAnswersPeer;
+        }
+        if ('submittedMe' in payload) {
+          swappedMeter.submittedPeer = payload.submittedMe;
+          delete swappedMeter.submittedMe;
+        }
+        if ('submittedPeer' in payload) {
+          swappedMeter.submittedMe = payload.submittedPeer;
+          delete swappedMeter.submittedPeer;
+        }
+        setMeterState(prev => ({ ...prev, ...swappedMeter }));
         break;
 
       case 'meter-reset':
@@ -770,7 +831,15 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // DRAWING CANVAS MODULE
   const sendCanvasDraw = (drawStroke: any) => {
-    setCanvasStrokes(prev => [...prev, drawStroke]);
+    setCanvasStrokes(prev => {
+      const idx = prev.findIndex(s => s.id === drawStroke.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = drawStroke;
+        return next;
+      }
+      return [...prev, drawStroke];
+    });
     sendDataChannelMsg('draw-stroke', { stroke: drawStroke });
   };
 
