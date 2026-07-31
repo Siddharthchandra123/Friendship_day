@@ -75,6 +75,7 @@ interface WebRTCContextType {
   // Media streams & states
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  remoteStreams: Record<string, MediaStream>;
   isAudioMuted: boolean;
   isVideoMuted: boolean;
   isScreenSharing: boolean;
@@ -141,6 +142,15 @@ const rtcConfig = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
 };
 
@@ -158,7 +168,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Streams
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -203,10 +213,9 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // WebRTC / Socket References
   const socketRef = useRef<Socket | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const isInitiatorRef = useRef(false);
   const localStreamRef = useRef<MediaStream | null>(null);
 
   // Initialize socket connection on component mount
@@ -217,62 +226,63 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const socket = socketRef.current;
 
-    socket.on('joined', ({ roomId: joinedRoomId, isInitiator }) => {
-      console.log(`Joined room ${joinedRoomId}. Initiator: ${isInitiator}`);
-      isInitiatorRef.current = isInitiator;
+    socket.on('joined', ({ roomId: joinedRoomId, otherUsers }) => {
+      console.log(`Joined room ${joinedRoomId}. Other users present:`, otherUsers);
       setRoomId(joinedRoomId);
       roomIdRef.current = joinedRoomId;
+      setIsConnecting(otherUsers.length > 0);
+      setPeerDisconnected(false);
+
+      // Initiate WebRTC call to all existing users in the room
+      otherUsers.forEach((peerId: string) => {
+        initiateCall(peerId);
+      });
+    });
+
+    socket.on('peer-joined', async ({ peerId }) => {
+      console.log(`Peer joined: ${peerId}. Waiting for their connection offer...`);
+      setPeerId(peerId);
       setIsConnecting(true);
       setPeerDisconnected(false);
     });
 
-    socket.on('peer-joined', async ({ peerId }) => {
-      console.log(`Peer joined: ${peerId}. Setting up connection...`);
-      setPeerId(peerId);
-      setIsConnecting(true);
-      
-      // If we are initiator, start WebRTC call
-      if (isInitiatorRef.current) {
-        initiateWebRTCConnection();
-      }
-    });
-
-    socket.on('offer', async ({ sdp }) => {
-      console.log('Received WebRTC Offer');
-      if (!peerConnectionRef.current) {
-        createPeerConnection();
+    socket.on('offer', async ({ sdp, senderId }) => {
+      console.log(`Received WebRTC Offer from ${senderId}`);
+      let pc = peerConnectionsRef.current.get(senderId);
+      if (!pc) {
+        pc = createPeerConnection(senderId);
       }
       
-      const pc = peerConnectionRef.current!;
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
-      socket.emit('answer', { sdp: pc.localDescription, roomId: roomIdRef.current });
+      socket.emit('answer', { sdp: pc.localDescription, targetUserId: senderId });
     });
 
-    socket.on('answer', async ({ sdp }) => {
-      console.log('Received WebRTC Answer');
-      if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+    socket.on('answer', async ({ sdp, senderId }) => {
+      console.log(`Received WebRTC Answer from ${senderId}`);
+      const pc = peerConnectionsRef.current.get(senderId);
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
       }
     });
 
-    socket.on('ice-candidate', async ({ candidate }) => {
-      console.log('Received ICE Candidate');
-      if (peerConnectionRef.current && candidate) {
+    socket.on('ice-candidate', async ({ candidate, senderId }) => {
+      console.log(`Received ICE Candidate from ${senderId}`);
+      const pc = peerConnectionsRef.current.get(senderId);
+      if (pc && candidate) {
         try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) {
           console.error('Error adding ICE candidate', e);
         }
       }
     });
 
-    socket.on('peer-left', () => {
-      console.log('Peer disconnected');
-      handlePeerDisconnect();
+    socket.on('peer-left', ({ peerId }) => {
+      console.log(`Peer left the room: ${peerId}`);
+      handlePeerLeft(peerId);
     });
 
     socket.on('room-full', () => {
@@ -334,15 +344,18 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const createPeerConnection = () => {
-    console.log('Creating Peer Connection...');
+  const createPeerConnection = (peerId: string): RTCPeerConnection => {
+    console.log(`Creating Peer Connection for peer ${peerId}...`);
     const pc = new RTCPeerConnection(rtcConfig);
-    peerConnectionRef.current = pc;
+    peerConnectionsRef.current.set(peerId, pc);
 
     // Handle incoming stream tracks from peer
     pc.ontrack = (event) => {
-      console.log('Received remote track', event.streams[0]);
-      setRemoteStream(event.streams[0]);
+      console.log(`Received remote track from ${peerId}`, event.streams[0]);
+      setRemoteStreams(prev => ({
+        ...prev,
+        [peerId]: event.streams[0]
+      }));
       setIsConnected(true);
       setIsConnecting(false);
     };
@@ -350,7 +363,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Send local tracks
     const stream = localStreamRef.current;
     if (stream) {
-      console.log('Adding local tracks to peer connection:', stream.getTracks().length);
+      console.log(`Adding local tracks to peer connection for ${peerId}:`, stream.getTracks().length);
       stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
       });
@@ -362,32 +375,33 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (event.candidate) {
         socketRef.current?.emit('ice-candidate', {
           candidate: event.candidate,
-          roomId: roomIdRef.current,
+          targetUserId: peerId,
         });
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`ICE Connection State: ${pc.iceConnectionState}`);
+      console.log(`ICE Connection State for ${peerId}: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-        handlePeerDisconnect();
+        handlePeerLeft(peerId);
       }
     };
 
     pc.ondatachannel = (event) => {
-      console.log('Received peer Data Channel via pc.ondatachannel');
-      setupDataChannel(event.channel);
+      console.log(`Received peer Data Channel from ${peerId}`);
+      setupDataChannel(event.channel, peerId);
     };
+
+    return pc;
   };
 
-  const initiateWebRTCConnection = async () => {
-    createPeerConnection();
-    const pc = peerConnectionRef.current!;
+  const initiateCall = async (peerId: string) => {
+    console.log(`Initiating WebRTC call to peer: ${peerId}`);
+    const pc = createPeerConnection(peerId);
 
-    // Create Data Channel (only initiator creates the channel)
-    console.log('Creating Data Channel "friendverse-channel"');
+    // Create Data Channel (only initiator of this peer-to-peer connection creates it)
     const dc = pc.createDataChannel('friendverse-channel');
-    setupDataChannel(dc);
+    setupDataChannel(dc, peerId);
 
     // Create SDP Offer
     const offer = await pc.createOffer();
@@ -395,34 +409,33 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     socketRef.current?.emit('offer', {
       sdp: pc.localDescription,
-      roomId: roomIdRef.current,
+      targetUserId: peerId,
     });
   };
 
-
-
   // Setup DataChannel Listeners and Handlers
-  const setupDataChannel = (dc: RTCDataChannel) => {
-    dataChannelRef.current = dc;
+  const setupDataChannel = (dc: RTCDataChannel, peerId: string) => {
+    dataChannelsRef.current.set(peerId, dc);
 
     dc.onopen = () => {
-      console.log('RTC Data Channel is OPEN');
+      console.log(`RTC Data Channel with ${peerId} is OPEN`);
       setIsConnected(true);
       setIsConnecting(false);
       setPeerDisconnected(false);
 
-      // Sync initial state if we are the initiator (e.g. initial timeline events or memory walls)
-      if (isInitiatorRef.current) {
-        sendDataChannelMsg('sync-state', {
+      // Sync initial state if we are the initiator
+      dc.send(JSON.stringify({
+        type: 'sync-state',
+        payload: {
           timelineEvents,
           memories
-        });
-      }
+        }
+      }));
     };
 
     dc.onclose = () => {
-      console.log('RTC Data Channel is CLOSED');
-      handlePeerDisconnect();
+      console.log(`RTC Data Channel with ${peerId} is CLOSED`);
+      handlePeerLeft(peerId);
     };
 
     dc.onmessage = (event) => {
@@ -434,6 +447,33 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     };
   };
+
+  const handlePeerLeft = (peerId: string) => {
+    console.log(`Cleaning up WebRTC peer: ${peerId}`);
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (pc) {
+      pc.close();
+      peerConnectionsRef.current.delete(peerId);
+    }
+    const dc = dataChannelsRef.current.get(peerId);
+    if (dc) {
+      dc.close();
+      dataChannelsRef.current.delete(peerId);
+    }
+
+    setRemoteStreams(prev => {
+      const next = { ...prev };
+      delete next[peerId];
+      
+      const hasPeers = Object.keys(next).length > 0;
+      if (!hasPeers) {
+        setIsConnected(false);
+        setPeerDisconnected(true);
+      }
+      return next;
+    });
+  };
+
 
   // Dispatch Incoming DataChannel Messages to React State
   const handleIncomingDataChannelMsg = (type: string, payload: any) => {
@@ -600,48 +640,33 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const sendDataChannelMsg = (type: string, payload: any) => {
-    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-      dataChannelRef.current.send(JSON.stringify({ type, payload }));
-    }
-  };
-
-  // Peer Disconnect Handling
-  const handlePeerDisconnect = () => {
-    setPeerDisconnected(true);
-    setIsConnected(false);
-    setRemoteStream(null);
-    setGameState({});
-    
-    // Reset call variables but keep room
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-    if (dataChannelRef.current) {
-      dataChannelRef.current.close();
-      dataChannelRef.current = null;
-    }
-    
-    // Initiator remains initiator, waits for re-connection
-    console.log('Peer left. Listening for reconnect.');
+    const msg = JSON.stringify({ type, payload });
+    dataChannelsRef.current.forEach((dc) => {
+      if (dc.readyState === 'open') {
+        dc.send(msg);
+      }
+    });
   };
 
   const cleanupMediaAndRTC = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
-    if (dataChannelRef.current) {
-      dataChannelRef.current.close();
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
     }
     setLocalStream(null);
-    localStreamRef.current = null;
-    setRemoteStream(null);
+
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop());
+      screenStreamRef.current = null;
+    }
+
+    peerConnectionsRef.current.forEach((pc) => pc.close());
+    peerConnectionsRef.current.clear();
+
+    dataChannelsRef.current.forEach((dc) => dc.close());
+    dataChannelsRef.current.clear();
+
+    setRemoteStreams({});
     setIsConnected(false);
     setIsConnecting(false);
     setRoomId('');
@@ -715,14 +740,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         const screenTrack = stream.getVideoTracks()[0];
         
-        // Replace video track in RTCPeerConnection
-        if (peerConnectionRef.current) {
-          const senders = peerConnectionRef.current.getSenders();
+        // Replace video track in ALL RTCPeerConnections
+        peerConnectionsRef.current.forEach((pc) => {
+          const senders = pc.getSenders();
           const videoSender = senders.find(sender => sender.track?.kind === 'video');
           if (videoSender) {
             videoSender.replaceTrack(screenTrack);
           }
-        }
+        });
 
         // When sharing ends (e.g. user clicks browser native stop sharing button)
         screenTrack.onended = () => {
@@ -756,13 +781,13 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     navigator.mediaDevices.getUserMedia({ video: true }).then((camStream) => {
       const camTrack = camStream.getVideoTracks()[0];
       
-      if (peerConnectionRef.current) {
-        const senders = peerConnectionRef.current.getSenders();
+      peerConnectionsRef.current.forEach((pc) => {
+        const senders = pc.getSenders();
         const videoSender = senders.find(sender => sender.track?.kind === 'video');
         if (videoSender) {
           videoSender.replaceTrack(camTrack);
         }
-      }
+      });
 
       const mergedStream = new MediaStream([camTrack]);
       const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
@@ -1051,7 +1076,8 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         peerDisconnected,
         roomFullError,
         localStream,
-        remoteStream,
+        remoteStream: Object.values(remoteStreams)[0] || null,
+        remoteStreams,
         isAudioMuted,
         isVideoMuted,
         isScreenSharing,

@@ -40,11 +40,14 @@ io.on('connection', (socket) => {
       rooms.set(roomId, clients);
     }
 
-    if (clients.size >= 2) {
+    if (clients.size >= 5) {
       console.log(`Room ${roomId} is full. User ${socket.id} rejected.`);
       socket.emit('room-full');
       return;
     }
+
+    // Get existing other users in the room
+    const otherUsers = Array.from(clients).filter(id => id !== socket.id);
 
     // Join the room
     clients.add(socket.id);
@@ -52,32 +55,29 @@ io.on('connection', (socket) => {
     
     console.log(`User ${socket.id} successfully joined room ${roomId}. Room size: ${clients.size}`);
     
-    // Notify the user they joined successfully
-    socket.emit('joined', { roomId, isInitiator: clients.size === 1 });
+    // Notify the user they joined successfully and provide existing peer list
+    socket.emit('joined', { roomId, otherUsers });
 
-    // If there is already another user, notify the existing user to start the offer
-    if (clients.size === 2) {
-      console.log(`Room ${roomId} is ready. Notifying peer to initiate WebRTC.`);
-      socket.to(roomId).emit('peer-joined', { peerId: socket.id });
-    }
+    // Notify existing peers that a new user joined
+    socket.to(roomId).emit('peer-joined', { peerId: socket.id });
   });
 
-  // Relay WebRTC Offer
-  socket.on('offer', ({ sdp, roomId }) => {
-    console.log(`Relaying offer from ${socket.id} in room ${roomId}`);
-    socket.to(roomId).emit('offer', { sdp, senderId: socket.id });
+  // Relay WebRTC Offer directly to a target peer
+  socket.on('offer', ({ sdp, targetUserId }) => {
+    console.log(`Relaying offer from ${socket.id} to ${targetUserId}`);
+    io.to(targetUserId).emit('offer', { sdp, senderId: socket.id });
   });
 
-  // Relay WebRTC Answer
-  socket.on('answer', ({ sdp, roomId }) => {
-    console.log(`Relaying answer from ${socket.id} in room ${roomId}`);
-    socket.to(roomId).emit('answer', { sdp, senderId: socket.id });
+  // Relay WebRTC Answer directly to a target peer
+  socket.on('answer', ({ sdp, targetUserId }) => {
+    console.log(`Relaying answer from ${socket.id} to ${targetUserId}`);
+    io.to(targetUserId).emit('answer', { sdp, senderId: socket.id });
   });
 
-  // Relay ICE Candidates
-  socket.on('ice-candidate', ({ candidate, roomId }) => {
-    console.log(`Relaying ICE Candidate from ${socket.id} in room ${roomId}`);
-    socket.to(roomId).emit('ice-candidate', { candidate, senderId: socket.id });
+  // Relay ICE Candidates directly to a target peer
+  socket.on('ice-candidate', ({ candidate, targetUserId }) => {
+    console.log(`Relaying ICE Candidate from ${socket.id} to ${targetUserId}`);
+    io.to(targetUserId).emit('ice-candidate', { candidate, senderId: socket.id });
   });
 
   // Handle manual WebRTC disconnect/leave
@@ -111,7 +111,7 @@ function handleUserLeave(socket, roomId) {
       rooms.delete(roomId);
       console.log(`Room ${roomId} is empty and deleted.`);
     } else {
-      // Notify the remaining user that the peer disconnected
+      // Notify all remaining users in the room that this peer disconnected
       socket.to(roomId).emit('peer-left', { peerId: socket.id });
     }
   }

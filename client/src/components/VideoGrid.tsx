@@ -8,7 +8,7 @@ import { useWebRTC } from '../context/WebRTCContext';
 export const VideoGrid: React.FC = () => {
   const {
     localStream,
-    remoteStream,
+    remoteStreams,
     isConnected,
     isConnecting,
     peerDisconnected,
@@ -24,7 +24,6 @@ export const VideoGrid: React.FC = () => {
   } = useWebRTC();
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -36,12 +35,7 @@ export const VideoGrid: React.FC = () => {
     }
   }, [localStream]);
 
-  // Bind remote stream
-  useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+
 
   const toggleFullscreen = () => {
     if (!videoContainerRef.current) return;
@@ -83,7 +77,13 @@ export const VideoGrid: React.FC = () => {
       }`}
     >
       {/* Video Streams Container */}
-      <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[220px]">
+      <div className={`flex-1 w-full grid gap-4 min-h-[220px] ${
+        Object.keys(remoteStreams).length <= 1 
+          ? 'grid-cols-1 md:grid-cols-2' 
+          : Object.keys(remoteStreams).length === 2 
+            ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3' 
+            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+      }`}>
         {/* LOCAL VIDEO STREAM */}
         <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-white/5 flex items-center justify-center">
           <video
@@ -132,31 +132,14 @@ export const VideoGrid: React.FC = () => {
           )}
         </div>
 
-        {/* REMOTE VIDEO STREAM */}
-        <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-white/5 flex items-center justify-center">
-          {isConnected && remoteStream ? (
-            <>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
-              
-              <div className="absolute top-3 left-3 flex items-center gap-2">
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-900/70 border border-white/10 backdrop-blur-md text-white">
-                  Bestie (Remote)
-                </span>
-                
-                {/* Connection Status Indicator */}
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 border border-green-500/30 text-green-300 backdrop-blur-md flex items-center gap-1">
-                  <Wifi size={10} className="text-green-400" />
-                  Excellent Connection
-                </span>
-              </div>
-            </>
-          ) : (
-            /* Lobby Wait Panel / Disconnect Screen */
+        {/* REMOTE VIDEO STREAMS */}
+        {Object.keys(remoteStreams).length > 0 ? (
+          Object.entries(remoteStreams).map(([peerId, stream]) => (
+            <RemoteVideoTile key={peerId} peerId={peerId} stream={stream} />
+          ))
+        ) : (
+          /* Lobby Wait Panel / Disconnect Screen */
+          <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-white/5 flex items-center justify-center">
             <div className="absolute inset-0 bg-gradient-to-br from-slate-900 to-purple-950/20 flex flex-col items-center justify-center text-slate-100 gap-4 p-6 text-center">
               {isConnecting ? (
                 <>
@@ -205,8 +188,8 @@ export const VideoGrid: React.FC = () => {
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Media Controller Toolbar */}
@@ -280,4 +263,37 @@ export const VideoGrid: React.FC = () => {
     </div>
   );
 };
+
+const RemoteVideoTile: React.FC<{ peerId: string; stream: MediaStream }> = ({ peerId, stream }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-white/5 flex items-center justify-center">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className="w-full h-full object-cover"
+      />
+      
+      <div className="absolute top-3 left-3 flex items-center gap-2">
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-900/70 border border-white/10 backdrop-blur-md text-white">
+          Friend ({peerId.substring(0, 4)})
+        </span>
+        
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 border border-green-500/30 text-green-300 backdrop-blur-md flex items-center gap-1">
+          <Wifi size={10} className="text-green-400" />
+          Excellent Connection
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export default VideoGrid;
