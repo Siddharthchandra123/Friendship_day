@@ -207,6 +207,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const isInitiatorRef = useRef(false);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   // Initialize socket connection on component mount
   useEffect(() => {
@@ -288,7 +289,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Request Camera & Microphone access
   const getUserMedia = async (): Promise<MediaStream> => {
-    if (localStream) return localStream;
+    if (localStreamRef.current) return localStreamRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -299,6 +300,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         audio: true
       });
       setLocalStream(stream);
+      localStreamRef.current = stream;
       return stream;
     } catch (err) {
       console.error('Error accessing camera/microphone, falling back to audio only or blank track:', err);
@@ -327,6 +329,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const dummyStream = new MediaStream([videoStream.getVideoTracks()[0], audioTrack]);
       setLocalStream(dummyStream);
+      localStreamRef.current = dummyStream;
       return dummyStream;
     }
   };
@@ -345,10 +348,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     // Send local tracks
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, localStream);
+    const stream = localStreamRef.current;
+    if (stream) {
+      console.log('Adding local tracks to peer connection:', stream.getTracks().length);
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
       });
+    } else {
+      console.warn('No local stream found in ref when adding tracks!');
     }
 
     pc.onicecandidate = (event) => {
@@ -572,6 +579,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       dataChannelRef.current.close();
     }
     setLocalStream(null);
+    localStreamRef.current = null;
     setRemoteStream(null);
     setIsConnected(false);
     setIsConnecting(false);
@@ -616,8 +624,9 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // MEDIA CONTROLS
   const toggleAudio = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
+    const stream = localStreamRef.current;
+    if (stream) {
+      const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioMuted(!audioTrack.enabled);
@@ -626,8 +635,9 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
+    const stream = localStreamRef.current;
+    if (stream) {
+      const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoMuted(!videoTrack.enabled);
@@ -660,10 +670,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Update local display stream for PIP
         // Merge screen video track with local audio track
-        const localAudioTrack = localStream?.getAudioTracks()[0];
+        const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
         const newStream = new MediaStream([screenTrack]);
         if (localAudioTrack) newStream.addTrack(localAudioTrack);
         setLocalStream(newStream);
+        localStreamRef.current = newStream;
 
       } catch (err) {
         console.error('Error starting screen share', err);
@@ -693,10 +704,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       const mergedStream = new MediaStream([camTrack]);
-      const localAudioTrack = localStream?.getAudioTracks()[0];
+      const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
       if (localAudioTrack) mergedStream.addTrack(localAudioTrack);
       
       setLocalStream(mergedStream);
+      localStreamRef.current = mergedStream;
     });
   };
 
