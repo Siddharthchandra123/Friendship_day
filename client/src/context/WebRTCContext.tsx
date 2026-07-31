@@ -144,7 +144,6 @@ const rtcConfig = {
   ],
 };
 
-const SIGNALING_PORT = 5000;
 // Replace this block in client/src/context/WebRTCContext.tsx
 const SIGNALING_URL = 'https://friendverse-signaling.onrender.com'; // Paste your Render URL here
 
