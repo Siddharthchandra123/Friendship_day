@@ -145,9 +145,8 @@ const rtcConfig = {
 };
 
 const SIGNALING_PORT = 5000;
-const SIGNALING_URL = window.location.hostname === 'localhost' 
-  ? `http://localhost:${SIGNALING_PORT}`
-  : window.location.origin;
+// Replace this block in client/src/context/WebRTCContext.tsx
+const SIGNALING_URL = 'https://friendverse-signaling.onrender.com'; // Paste your Render URL here
 
 export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState('');
