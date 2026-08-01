@@ -36,16 +36,25 @@ function getLocalRoomState(roomId) {
 
 // Background Kafka connection and consumer runner
 async function startKafka() {
-  if (!KAFKA_BROKER) {
-    console.log('KAFKA_BROKER environment variable not set. Running in local-only fallback mode.');
+  const isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
+  const finalBroker = (isRender && KAFKA_BROKER === 'localhost:9092') ? null : KAFKA_BROKER;
+
+  if (!finalBroker) {
+    console.log('Running in cloud/fallback mode (no local Kafka broker connection attempted). Using local memory queues.');
     return;
   }
 
   try {
-    console.log(`Connecting to self-hosted Kafka broker at ${KAFKA_BROKER}...`);
+    console.log(`Connecting to self-hosted Kafka broker at ${finalBroker}...`);
+    const { logLevel } = require('kafkajs');
     kafka = new Kafka({
       clientId: 'friendverse-gateway',
-      brokers: [KAFKA_BROKER]
+      brokers: [finalBroker],
+      logLevel: logLevel.ERROR, // Suppress verbose warning/info logs
+      retry: {
+        initialRetryTime: 100,
+        retries: 1 // Fail fast if broker is unavailable
+      }
     });
 
     producer = kafka.producer();
@@ -53,6 +62,21 @@ async function startKafka() {
     consumer = kafka.consumer({ 
       groupId: 'friendverse-group-' + Math.random().toString(36).substring(2, 8) 
     });
+
+    const admin = kafka.admin();
+    await admin.connect();
+    const existingTopics = await admin.listTopics();
+    if (!existingTopics.includes('friendverse-events')) {
+      console.log('Creating topic "friendverse-events"...');
+      await admin.createTopics({
+        topics: [{
+          topic: 'friendverse-events',
+          numPartitions: 1,
+          replicationFactor: 1
+        }]
+      });
+    }
+    await admin.disconnect();
 
     await producer.connect();
     await consumer.connect();
@@ -115,7 +139,7 @@ startKafka();
 async function publishEvent(roomId, eventType, payload, senderId) {
   // Update local memory state (fallback / caching)
   const localState = getLocalRoomState(roomId);
-  if (!KAFKA_BROKER) {
+  if (!producer) {
     if (eventType === 'chat') {
       localState.chat.push(payload);
     } else if (eventType === 'memory-add') {
@@ -254,7 +278,7 @@ io.on('connection', (socket) => {
 
   // Relays for data sync (Events either go to Kafka or get relayed immediately on local fallback)
   socket.on('chat', async ({ roomId, message }) => {
-    if (KAFKA_BROKER) {
+    if (producer) {
       await publishEvent(roomId, 'chat', message, socket.id);
     } else {
       const localState = getLocalRoomState(roomId);
@@ -284,7 +308,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('memory-add', async ({ roomId, item }) => {
-    if (KAFKA_BROKER) {
+    if (producer) {
       await publishEvent(roomId, 'memory-add', item, socket.id);
     } else {
       const localState = getLocalRoomState(roomId);
@@ -294,7 +318,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('memory-delete', async ({ roomId, id }) => {
-    if (KAFKA_BROKER) {
+    if (producer) {
       await publishEvent(roomId, 'memory-delete', { id }, socket.id);
     } else {
       const localState = getLocalRoomState(roomId);
@@ -304,7 +328,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('timeline-add', async ({ roomId, event }) => {
-    if (KAFKA_BROKER) {
+    if (producer) {
       await publishEvent(roomId, 'timeline-add', event, socket.id);
     } else {
       const localState = getLocalRoomState(roomId);
@@ -314,7 +338,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('timeline-delete', async ({ roomId, id }) => {
-    if (KAFKA_BROKER) {
+    if (producer) {
       await publishEvent(roomId, 'timeline-delete', { id }, socket.id);
     } else {
       const localState = getLocalRoomState(roomId);
