@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X, User as UserIcon } from 'lucide-react';
+import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X, User as UserIcon, Palette } from 'lucide-react';
 import { useWebRTC } from '../context/WebRTCContext';
 import { useAuth } from '../context/AuthContext';
 import { ambientSynth } from '../utils/WebAudioSynth';
@@ -71,7 +71,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden z-10 px-4 md:px-8 py-12 select-none">
+    <div className="relative min-h-screen w-full flex flex-col items-center justify-start overflow-y-auto z-10 px-4 md:px-8 py-12 select-none">
       
       {/* Aurora Ambient Glowing Blobs */}
       <div className="aurora-container">
@@ -83,6 +83,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
           }}
           transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
           className="aurora-blob w-[450px] h-[450px] bg-purple-600/30 left-[15%] top-[10%]" 
+          style={{ backgroundColor: 'var(--aurora-1)' }}
         />
         <motion.div 
           animate={{
@@ -92,6 +93,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
           }}
           transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
           className="aurora-blob w-[500px] h-[500px] bg-pink-600/25 right-[10%] bottom-[15%]" 
+          style={{ backgroundColor: 'var(--aurora-2)' }}
         />
         <motion.div 
           animate={{
@@ -101,12 +103,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
           }}
           transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
           className="aurora-blob w-[350px] h-[350px] bg-blue-600/20 left-[40%] top-[45%]" 
+          style={{ backgroundColor: 'var(--aurora-3)' }}
         />
       </div>
 
       {/* Floating Stars Layer (Background SVGs) */}
       <div className="absolute inset-0 pointer-events-none z-0">
-        {[...Array(20)].map((_, i) => (
+        {[...Array(25)].map((_, i) => (
           <motion.div
             key={i}
             className="absolute text-yellow-300/40"
@@ -138,7 +141,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={onGoToProfile}
-          className="p-4 rounded-full glass-panel-light text-white shadow-lg flex items-center justify-center cursor-pointer border border-white/20 transition-all hover:bg-white/10 hover:border-white/30"
+          className="p-4 rounded-full glass-panel-light text-white shadow-lg flex items-center justify-center cursor-pointer border border-white/20 transition-all hover:bg-white/10 hover:border-white/30 animate-pulse-slow"
           title="Profile Settings"
         >
           {user?.avatar ? (
@@ -164,75 +167,97 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
         </motion.button>
       </div>
 
-      {/* Header and Hero Text */}
-      <div className="text-center z-10 max-w-4xl mx-auto flex flex-col items-center">
-        
-        {/* Animated Badge */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-panel-light text-purple-300 text-xs font-semibold uppercase tracking-wider mb-6 border border-purple-500/30"
-        >
-          <Heart size={12} className="fill-purple-500 text-purple-500" />
-          FriendVerse Lobby
-        </motion.div>
+      {/* Hero content area */}
+      <div className="min-h-[85vh] w-full flex flex-col items-center justify-center relative z-10">
+        <div className="text-center max-w-4xl mx-auto flex flex-col items-center">
+          
+          {/* Animated Welcome Badge */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-panel-light text-purple-300 text-xs font-semibold uppercase tracking-wider mb-6 border border-purple-500/30"
+          >
+            <Heart size={12} className="fill-purple-500 text-purple-500 animate-pulse" />
+            <span>Welcome, {user?.nickname || 'Friend'}! 👋</span>
+          </motion.div>
 
-        {/* Title */}
-        <motion.h1
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1.0, ease: "easeOut", delay: 0.1 }}
-          className="text-6xl md:text-8xl font-black bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 tracking-tight leading-none mb-6 drop-shadow-sm select-text text-center font-display"
-        >
-          Happy Friendship <br />Day <span className="inline-block animate-bounce">❤️</span>
-        </motion.h1>
+          {/* Title */}
+          <motion.h1
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1.0, ease: "easeOut", delay: 0.1 }}
+            className="text-6xl md:text-8.5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 tracking-tight leading-none mb-6 drop-shadow-md select-text text-center font-display"
+          >
+            Happy Friendship <br />Day <span className="inline-block animate-bounce">❤️</span>
+          </motion.h1>
 
-        {/* Dynamic Quote Box */}
-        <div className="h-20 flex items-center justify-center mb-12 max-w-xl px-4">
-          <AnimatePresence mode="wait">
-            <motion.p
-              key={currentQuoteIndex}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.6, ease: "easeInOut" }}
-              className="text-xl md:text-2xl text-purple-100/90 font-light italic text-center drop-shadow-md leading-relaxed select-text"
+          {/* Dynamic Quote Box */}
+          <div className="h-20 flex items-center justify-center mb-10 max-w-xl px-4 relative group">
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={currentQuoteIndex}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.6, ease: "easeInOut" }}
+                className="text-xl md:text-2xl text-purple-100/90 font-light italic text-center drop-shadow-md leading-relaxed select-text"
+              >
+                "{quotes[currentQuoteIndex]}"
+              </motion.p>
+            </AnimatePresence>
+            <button
+              onClick={() => setCurrentQuoteIndex((prev) => (prev + 1) % quotes.length)}
+              className="absolute right-[-40px] opacity-0 group-hover:opacity-100 transition-opacity p-2 text-slate-400 hover:text-white cursor-pointer bg-white/5 rounded-full hover:bg-white/10"
+              title="Next friendship quote"
             >
-              "{quotes[currentQuoteIndex]}"
-            </motion.p>
-          </AnimatePresence>
+              <Sparkles size={14} className="text-purple-400" />
+            </button>
+          </div>
+
+          {/* Buttons Grid */}
+          <motion.div
+            initial={{ opacity: 0, y: 25 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
+            className="flex flex-col sm:flex-row gap-6 w-full max-w-md"
+          >
+            {/* Create Button */}
+            <button
+              onClick={() => {
+                if (user) createRoom(user.nickname);
+              }}
+              className="flex-1 btn-primary py-4 px-8 flex items-center justify-center gap-3 text-lg font-bold shadow-2xl relative overflow-hidden group cursor-pointer"
+            >
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+              <Play className="fill-white" size={20} />
+              Create Celebration
+            </button>
+
+            {/* Join Button */}
+            <button
+              onClick={() => {
+                setShowJoinModal(true);
+              }}
+              className="flex-1 btn-secondary py-4 px-8 flex items-center justify-center gap-2 text-lg font-bold cursor-pointer"
+            >
+              <Send size={20} className="text-pink-400" />
+              Join Celebration
+            </button>
+          </motion.div>
         </div>
 
-        {/* Buttons Grid */}
+        {/* Scroll Down Indicator */}
         <motion.div
-          initial={{ opacity: 0, y: 25 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
-          className="flex flex-col sm:flex-row gap-6 w-full max-w-md"
+          animate={{ y: [0, 10, 0] }}
+          transition={{ duration: 2.0, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 opacity-55 text-xs tracking-widest text-slate-400 cursor-pointer"
+          onClick={() => {
+            document.getElementById('feature-showcase')?.scrollIntoView({ behavior: 'smooth' });
+          }}
         >
-          {/* Create Button */}
-          <button
-            onClick={() => {
-              if (user) createRoom(user.nickname);
-            }}
-            className="flex-1 btn-primary py-4 px-8 flex items-center justify-center gap-3 text-lg font-bold shadow-2xl relative overflow-hidden group cursor-pointer"
-          >
-            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
-            <Play className="fill-white" size={20} />
-            Create Celebration
-          </button>
-
-          {/* Join Button */}
-          <button
-            onClick={() => {
-              setShowJoinModal(true);
-            }}
-            className="flex-1 btn-secondary py-4 px-8 flex items-center justify-center gap-2 text-lg font-bold cursor-pointer"
-          >
-            <Send size={20} className="text-pink-400" />
-            Join Celebration
-          </button>
+          <span>SCROLL FOR FEATURES</span>
+          <div className="w-[1.5px] h-6 bg-slate-500 rounded-full" />
         </motion.div>
       </div>
 
@@ -264,15 +289,64 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
         ))}
       </div>
 
-      {/* Scroll Down Indicator */}
-      <motion.div
-        animate={{ y: [0, 10, 0] }}
-        transition={{ duration: 2.0, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute bottom-8 z-10 flex flex-col items-center gap-1.5 opacity-55 text-xs tracking-widest text-slate-400"
+      {/* Feature Showcase Grid Section */}
+      <section
+        id="feature-showcase"
+        className="w-full max-w-5xl mx-auto mt-24 mb-16 px-4 z-10 flex flex-col items-center gap-12"
       >
-        <span>EXPERIENCE PEER-TO-PEER</span>
-        <div className="w-[1.5px] h-6 bg-slate-500 rounded-full" />
-      </motion.div>
+        <div className="text-center space-y-3">
+          <h2 className="text-3xl md:text-5xl font-black font-display bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300">
+            Everything You Need to Celebrate
+          </h2>
+          <p className="text-slate-400 text-sm max-w-lg mx-auto leading-relaxed">
+            Private, secure, and interactive workspaces designed to bring you and your friends closer together, no matter the distance.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+          {/* Card 1: WebRTC Private Calls */}
+          <motion.div
+            whileHover={{ y: -6, scale: 1.02 }}
+            className="glass-card rounded-3xl p-6 flex flex-col gap-4 text-left border border-white/5 bg-slate-900/20 shadow-lg"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <Heart size={24} className="fill-purple-500/20" />
+            </div>
+            <h3 className="text-lg font-bold font-display text-white">Private Room Calls</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Experience ultra-low latency WebRTC video & audio feeds direct between peers. Secure authentication keeps your conversations private.
+            </p>
+          </motion.div>
+
+          {/* Card 2: Synced Whiteboard */}
+          <motion.div
+            whileHover={{ y: -6, scale: 1.02 }}
+            className="glass-card rounded-3xl p-6 flex flex-col gap-4 text-left border border-white/5 bg-slate-900/20 shadow-lg"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
+              <Palette size={24} />
+            </div>
+            <h3 className="text-lg font-bold font-display text-white">Collaborative Board</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Doodle, sketch, and play drawing games with synced cursor paths. Optimized drawing rendering keeps inputs lag-free at 60fps.
+            </p>
+          </motion.div>
+
+          {/* Card 3: Themes & Feeds */}
+          <motion.div
+            whileHover={{ y: -6, scale: 1.02 }}
+            className="glass-card rounded-3xl p-6 flex flex-col gap-4 text-left border border-white/5 bg-slate-900/20 shadow-lg"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <Sparkles size={24} />
+            </div>
+            <h3 className="text-lg font-bold font-display text-white">Themes & Stories</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Share posts, photos, and like stories on a central feed. Skin the application instantly with 5 premium variable themes.
+            </p>
+          </motion.div>
+        </div>
+      </section>
 
       {/* JOIN ROOM MODAL */}
       <AnimatePresence>

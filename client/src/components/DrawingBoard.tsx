@@ -32,20 +32,25 @@ export const DrawingBoard: React.FC = () => {
   const [brushColor, setBrushColor] = useState('#8b5cf6'); // purple-500
   const [brushSize, setBrushSize] = useState(4);
   const currentStrokeRef = useRef<Stroke | null>(null);
+  const lastEmitTimeRef = useRef<number>(0);
 
-  // Redraw canvas whenever drawing state is updated from context
-  useEffect(() => {
+  // Extracted canvas redrawing logic
+  const drawCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear and redraw all strokes
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     canvasStrokes.forEach((stroke: Stroke) => {
       if (stroke.points.length < 1) return;
+
+      // Skip redrawing our own active drawing stroke in real-time to prevent overlapping/flicker
+      if (isDrawing && currentStrokeRef.current && stroke.id === currentStrokeRef.current.id) {
+        return;
+      }
 
       ctx.beginPath();
       ctx.strokeStyle = stroke.color;
@@ -53,7 +58,6 @@ export const DrawingBoard: React.FC = () => {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // Multiply normalized coordinate values back into absolute pixel widths/heights
       const startX = stroke.points[0].x * canvas.width;
       const startY = stroke.points[0].y * canvas.height;
       ctx.moveTo(startX, startY);
@@ -65,7 +69,12 @@ export const DrawingBoard: React.FC = () => {
       });
       ctx.stroke();
     });
-  }, [canvasStrokes]);
+  };
+
+  // Redraw canvas whenever drawing state is updated from context
+  useEffect(() => {
+    drawCanvas();
+  }, [canvasStrokes, isDrawing]);
 
   // Adjust canvas pixel resolution to display client boundary size
   useEffect(() => {
@@ -77,14 +86,14 @@ export const DrawingBoard: React.FC = () => {
       canvas.width = rect.width;
       canvas.height = rect.height;
 
-      // Force canvas refresh trigger by changing state slightly
-      // or retriggering canvas drawing effect
+      // Re-render drawing strokes instantly after dimension recalculations to prevent blank canvas
+      drawCanvas();
     };
 
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [canvasStrokes.length]); // Refresh drawing coordinates relative to new scales on window size adjustments
+  }, [canvasStrokes]);
 
   // MOUSE & TOUCH EVENT HANDLERS
   const startDrawing = (clientX: number, clientY: number) => {
@@ -96,6 +105,7 @@ export const DrawingBoard: React.FC = () => {
     const y = (clientY - rect.top) / rect.height;
 
     setIsDrawing(true);
+    lastEmitTimeRef.current = Date.now();
     
     const newStroke: Stroke = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 4),
@@ -118,16 +128,43 @@ export const DrawingBoard: React.FC = () => {
     const x = (clientX - rect.left) / rect.width;
     const y = (clientY - rect.top) / rect.height;
 
+    // Draw the segment locally and immediately for butter-smooth 60fps drawing response
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      const prevPoints = currentStrokeRef.current.points;
+      const prevPt = prevPoints[prevPoints.length - 1];
+      
+      ctx.moveTo(prevPt.x * canvas.width, prevPt.y * canvas.height);
+      ctx.lineTo(clientX - rect.left, clientY - rect.top);
+      ctx.stroke();
+    }
+
     const updatedStroke = {
       ...currentStrokeRef.current,
       points: [...currentStrokeRef.current.points, { x, y }]
     };
 
     currentStrokeRef.current = updatedStroke;
-    sendCanvasDraw(updatedStroke);
+
+    // Throttle network broadcasts (Socket.io/WebRTC) to at most once every 40ms to protect bandwidth
+    const now = Date.now();
+    if (now - lastEmitTimeRef.current > 40) {
+      sendCanvasDraw(updatedStroke);
+      lastEmitTimeRef.current = now;
+    }
   };
 
   const stopDrawing = () => {
+    if (isDrawing && currentStrokeRef.current) {
+      // Sync final completed stroke to make sure all endpoints are perfectly captured
+      sendCanvasDraw(currentStrokeRef.current);
+    }
     setIsDrawing(false);
     currentStrokeRef.current = null;
   };
