@@ -579,6 +579,56 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, []);
 
+  const createFallbackMediaStream = (): MediaStream => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.fillText('Camera unavailable', 70, 245);
+      ctx.font = '20px sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText('Using a placeholder stream for now', 90, 285);
+    }
+
+    const videoStream = canvas.captureStream(15);
+    const videoTrack = videoStream.getVideoTracks()[0];
+    const tracks: MediaStreamTrack[] = [];
+
+    if (videoTrack) {
+      tracks.push(videoTrack);
+    }
+
+    try {
+      const audioContext = new AudioContext();
+      const destination = audioContext.createMediaStreamDestination();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 220;
+      gain.gain.value = 0;
+
+      oscillator.connect(gain);
+      gain.connect(destination);
+      oscillator.start();
+
+      const audioTrack = destination.stream.getAudioTracks()[0];
+      if (audioTrack) {
+        tracks.push(audioTrack);
+      }
+    } catch (error) {
+      console.warn('Unable to create fallback audio track:', error);
+    }
+
+    return new MediaStream(tracks);
+  };
+
   // Request Camera & Microphone access
   const getUserMedia = async (): Promise<MediaStream> => {
     if (localStreamRef.current) return localStreamRef.current;
@@ -595,28 +645,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStreamRef.current = stream;
       return stream;
     } catch (err) {
-      console.error('Error accessing camera/microphone, falling back to oscillator/blank stream:', err);
-      const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = 480;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(0, 0, 640, 480);
-      }
-      const videoStream = canvas.captureStream(30);
-      let audioTrack: MediaStreamTrack;
-      try {
-        const audioCtx = new AudioContext();
-        const dest = audioCtx.createMediaStreamDestination();
-        audioTrack = dest.stream.getAudioTracks()[0];
-      } catch (e) {
-        audioTrack = videoStream.getVideoTracks()[0];
-      }
-      const dummyStream = new MediaStream([videoStream.getVideoTracks()[0], audioTrack]);
-      setLocalStream(dummyStream);
-      localStreamRef.current = dummyStream;
-      return dummyStream;
+      console.warn('Camera/microphone access failed. Using a placeholder stream instead:', err);
+      const fallbackStream = createFallbackMediaStream();
+      setLocalStream(fallbackStream);
+      localStreamRef.current = fallbackStream;
+      return fallbackStream;
     }
   };
 
