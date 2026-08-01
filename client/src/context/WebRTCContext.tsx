@@ -632,20 +632,53 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Request Camera & Microphone access
   const getUserMedia = async (): Promise<MediaStream> => {
     if (localStreamRef.current) return localStreamRef.current;
+
+    const videoConstraints = {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      facingMode: 'user'
+    };
+
+    const audioConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
+    };
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        },
-        audio: true
+        video: videoConstraints,
+        audio: audioConstraints
       });
       setLocalStream(stream);
       localStreamRef.current = stream;
       return stream;
-    } catch (err) {
-      console.warn('Camera/microphone access failed. Using a placeholder stream instead:', err);
+    } catch (primaryError) {
+      try {
+        const [audioOnlyResult, videoOnlyResult] = await Promise.allSettled([
+          navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints }),
+          navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false })
+        ]);
+
+        const combinedTracks: MediaStreamTrack[] = [];
+        if (audioOnlyResult.status === 'fulfilled') {
+          combinedTracks.push(...audioOnlyResult.value.getAudioTracks());
+        }
+        if (videoOnlyResult.status === 'fulfilled') {
+          combinedTracks.push(...videoOnlyResult.value.getVideoTracks());
+        }
+
+        if (combinedTracks.length > 0) {
+          const recoveredStream = new MediaStream(combinedTracks);
+          setLocalStream(recoveredStream);
+          localStreamRef.current = recoveredStream;
+          return recoveredStream;
+        }
+      } catch (secondaryError) {
+        console.warn('Camera/microphone fallback recovery failed:', secondaryError);
+      }
+
+      console.warn('Camera/microphone access failed. Using a placeholder stream instead:', primaryError);
       const fallbackStream = createFallbackMediaStream();
       setLocalStream(fallbackStream);
       localStreamRef.current = fallbackStream;
