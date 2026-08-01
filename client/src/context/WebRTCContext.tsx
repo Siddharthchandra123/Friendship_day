@@ -161,7 +161,9 @@ const rtcConfig = {
 };
 
 // Replace this block in client/src/context/WebRTCContext.tsx
-const SIGNALING_URL = 'https://friendverse-signaling.onrender.com'; // Paste your Render URL here
+const SIGNALING_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:5000'
+  : 'https://friendverse-signaling.onrender.com'; // Paste your Render URL here
 
 export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState('');
@@ -204,6 +206,16 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     { id: '3', year: '2024', text: 'Graduation Day! 🎓' },
     { id: '4', year: '2026', text: 'Still best friends forever! ❤️' }
   ]);
+
+  const memoriesRef = useRef(memories);
+  useEffect(() => {
+    memoriesRef.current = memories;
+  }, [memories]);
+
+  const timelineEventsRef = useRef(timelineEvents);
+  useEffect(() => {
+    timelineEventsRef.current = timelineEvents;
+  }, [timelineEvents]);
   
   // Games
   const [currentMiniGame, setCurrentMiniGame] = useState<'none' | 'tictactoe' | 'rps' | 'memory' | 'emojiguess'>('none');
@@ -249,17 +261,19 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log(`Joined room ${joinedRoomId}. Other users present:`, otherUsers);
       setRoomId(joinedRoomId);
       roomIdRef.current = joinedRoomId;
-      setIsConnecting(otherUsers.length > 0);
+      setIsConnecting(otherUsers ? otherUsers.length > 0 : false);
       setPeerDisconnected(false);
 
-      const names: Record<string, string> = {};
-      otherUsers.forEach((peer: any) => {
-        const id = typeof peer === 'object' ? peer.id : peer;
-        const name = typeof peer === 'object' ? peer.nickname : 'Friend';
-        names[id] = name;
-        initiateCall(id);
-      });
-      setPeerNicknames(prev => ({ ...prev, ...names }));
+      if (otherUsers) {
+        const names: Record<string, string> = {};
+        otherUsers.forEach((peer: any) => {
+          const id = typeof peer === 'object' ? peer.id : peer;
+          const name = typeof peer === 'object' ? peer.nickname : 'Friend';
+          names[id] = name;
+          initiateCall(id);
+        });
+        setPeerNicknames(prev => ({ ...prev, ...names }));
+      }
     });
 
     socket.on('peer-joined', async ({ peerId, nickname }) => {
@@ -434,7 +448,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     pc.ondatachannel = (event) => {
       console.log(`Received peer Data Channel from ${peerId}`);
-      setupDataChannel(event.channel, peerId);
+      setupDataChannel(event.channel, peerId, false);
     };
 
     return pc;
@@ -446,7 +460,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Create Data Channel (only initiator of this peer-to-peer connection creates it)
     const dc = pc.createDataChannel('friendverse-channel');
-    setupDataChannel(dc, peerId);
+    setupDataChannel(dc, peerId, true);
 
     // Create SDP Offer
     const offer = await pc.createOffer();
@@ -459,7 +473,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // Setup DataChannel Listeners and Handlers
-  const setupDataChannel = (dc: RTCDataChannel, peerId: string) => {
+  const setupDataChannel = (dc: RTCDataChannel, peerId: string, isInitiator: boolean) => {
     dataChannelsRef.current.set(peerId, dc);
 
     dc.onopen = () => {
@@ -476,14 +490,18 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }));
 
-      // Sync initial state if we are the initiator
-      dc.send(JSON.stringify({
-        type: 'sync-state',
-        payload: {
-          timelineEvents,
-          memories
-        }
-      }));
+      // Sync initial state only if we are the connection receiver (non-initiator host)
+      // to avoid overwriting host state with newcomer's empty state
+      if (!isInitiator) {
+        console.log('Sending initial memories and timeline sync state to initiator...');
+        dc.send(JSON.stringify({
+          type: 'sync-state',
+          payload: {
+            timelineEvents: timelineEventsRef.current,
+            memories: memoriesRef.current
+          }
+        }));
+      }
     };
 
     dc.onclose = () => {
