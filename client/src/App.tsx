@@ -1,14 +1,17 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { WebRTCProvider, useWebRTC } from './context/WebRTCContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LandingPage } from './components/LandingPage';
 import { CelebrationRoom } from './components/CelebrationRoom';
+import { ProfilePage } from './components/ProfilePage';
+import { CustomCursor } from './components/CustomCursor';
 import { AuthPage } from './components/AuthPage';
 import { Heart } from 'lucide-react';
 
 const FriendVerseApp: React.FC = () => {
   const { roomId, isConnecting } = useWebRTC();
   const { user, isAuthLoading } = useAuth();
+  const [view, setView] = useState<'lobby' | 'profile'>('lobby');
 
   // Update URL to contain the room parameter when in a room to support reloading/refreshing
   useEffect(() => {
@@ -20,6 +23,13 @@ const FriendVerseApp: React.FC = () => {
       window.history.replaceState({}, document.title, cleanUrl);
     }
   }, [roomId]);
+
+  // Apply user theme choice globally to body
+  useEffect(() => {
+    document.body.className = '';
+    const activeTheme = user?.theme || 'aurora';
+    document.body.classList.add(`theme-${activeTheme}`);
+  }, [user?.theme]);
 
   // Loading Screen for Authentication Check
   if (isAuthLoading) {
@@ -50,9 +60,17 @@ const FriendVerseApp: React.FC = () => {
     );
   }
 
+  if (roomId) {
+    return <CelebrationRoom />;
+  }
+
   return (
     <>
-      {roomId ? <CelebrationRoom /> : <LandingPage />}
+      {view === 'profile' ? (
+        <ProfilePage onBack={() => setView('lobby')} />
+      ) : (
+        <LandingPage onGoToProfile={() => setView('profile')} />
+      )}
     </>
   );
 };
@@ -60,6 +78,7 @@ const FriendVerseApp: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
+      <CustomCursor />
       <WebRTCProvider>
         <FriendVerseApp />
       </WebRTCProvider>

@@ -5,6 +5,7 @@ export interface User {
   username: string;
   nickname: string;
   avatar: string | null;
+  theme: string;
 }
 
 interface AuthContextType {
@@ -13,7 +14,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (username: string, nickname: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  updateProfile: (nickname?: string, avatar?: string | null, password?: string) => Promise<{ success: boolean; error?: string }>;
+  updateProfile: (nickname?: string, avatar?: string | null, password?: string, theme?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -108,12 +109,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateProfile = async (nickname?: string, avatar?: string | null, password?: string) => {
+  const updateProfile = async (nickname?: string, avatar?: string | null, password?: string, theme?: string) => {
     try {
       const res = await fetch(`${API_BASE}/auth/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nickname, avatar, password }),
+        body: JSON.stringify({ nickname, avatar, password, theme }),
         credentials: 'include'
       });
 

@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X, User as UserIcon } from 'lucide-react';
 import { useWebRTC } from '../context/WebRTCContext';
 import { useAuth } from '../context/AuthContext';
-import { ProfileModal } from './ProfileModal';
 import { ambientSynth } from '../utils/WebAudioSynth';
 
 const quotes = [
@@ -16,13 +15,16 @@ const quotes = [
   "Good friends are like stars. You don't always see them, but you know they're always there. 💫"
 ];
 
-export const LandingPage: React.FC = () => {
+interface LandingPageProps {
+  onGoToProfile: () => void;
+}
+
+export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
   const { createRoom, joinRoom, roomFullError } = useWebRTC();
   const { user } = useAuth();
   const [currentQuoteIndex, setCurrentQuoteIndex] = useState(0);
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
   // Check URL for invite code & support auto-rejoining
@@ -135,7 +137,7 @@ export const LandingPage: React.FC = () => {
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => setIsProfileOpen(true)}
+          onClick={onGoToProfile}
           className="p-4 rounded-full glass-panel-light text-white shadow-lg flex items-center justify-center cursor-pointer border border-white/20 transition-all hover:bg-white/10 hover:border-white/30"
           title="Profile Settings"
         >
@@ -345,8 +347,6 @@ export const LandingPage: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* PROFILE SETTINGS MODAL */}
-      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
   );
 };
