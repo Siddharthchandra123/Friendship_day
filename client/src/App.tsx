@@ -1,19 +1,40 @@
 import React, { useEffect } from 'react';
 import { WebRTCProvider, useWebRTC } from './context/WebRTCContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { LandingPage } from './components/LandingPage';
 import { CelebrationRoom } from './components/CelebrationRoom';
+import { AuthPage } from './components/AuthPage';
 import { Heart } from 'lucide-react';
 
 const FriendVerseApp: React.FC = () => {
   const { roomId, isConnecting } = useWebRTC();
+  const { user, isAuthLoading } = useAuth();
 
-  // Clean URL when connected to a room to keep routing clean
+  // Update URL to contain the room parameter when in a room to support reloading/refreshing
   useEffect(() => {
     if (roomId) {
+      const roomUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+      window.history.replaceState({}, document.title, roomUrl);
+    } else {
       const cleanUrl = window.location.origin + window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
     }
   }, [roomId]);
+
+  // Loading Screen for Authentication Check
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white gap-4 select-none">
+        <div className="w-10 h-10 rounded-full border-2 border-purple-500/20 border-t-purple-500 animate-spin" />
+        <span className="text-sm font-semibold text-slate-400">Restoring secure session...</span>
+      </div>
+    );
+  }
+
+  // If not logged in, force AuthPage
+  if (!user) {
+    return <AuthPage />;
+  }
 
   if (isConnecting && !roomId) {
     return (
@@ -38,9 +59,11 @@ const FriendVerseApp: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <WebRTCProvider>
-      <FriendVerseApp />
-    </WebRTCProvider>
+    <AuthProvider>
+      <WebRTCProvider>
+        <FriendVerseApp />
+      </WebRTCProvider>
+    </AuthProvider>
   );
 };
 

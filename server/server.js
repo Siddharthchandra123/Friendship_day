@@ -5,10 +5,79 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const { AccessToken } = require('livekit-server-sdk');
 const { Kafka } = require('kafkajs');
+const cookieParser = require('cookie-parser');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
+
+const JWT_SECRET = process.env.JWT_SECRET || 'friendverse_super_secret_fallback_key';
+
+// Initialize SQLite database
+const dbPath = path.join(__dirname, 'friendverse.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Database connection failed:', err.message);
+  } else {
+    console.log('Connected to SQLite database at:', dbPath);
+    initializeDatabaseSchema();
+  }
+});
+
+function initializeDatabaseSchema() {
+  db.serialize(() => {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        nickname TEXT NOT NULL,
+        avatar TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS room_members (
+        room_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        PRIMARY KEY (room_id, user_id)
+      )
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        room_id TEXT,
+        details TEXT,
+        ip_address TEXT,
+        timestamp INTEGER NOT NULL
+      )
+    `);
+  });
+}
+
+function logAuditEvent(eventType, userId, username, roomId, details, ip) {
+  const timestamp = Date.now();
+  db.run(
+    'INSERT INTO audit_logs (event_type, user_id, username, room_id, details, ip_address, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [eventType, userId, username, roomId, details ? JSON.stringify(details) : null, ip || 'unknown', timestamp],
+    (err) => {
+      if (err) {
+        console.error('Audit logger failed:', err.message);
+      }
+    }
+  );
+}
 
 // Initialize Kafka client if broker is configured
 let kafka, producer, consumer;
@@ -177,6 +246,172 @@ async function publishEvent(roomId, eventType, payload, senderId) {
   }
 }
 
+// Authentication Routes
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, nickname, password } = req.body;
+  if (!username || !nickname || !password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+    const userId = 'usr_' + Math.random().toString(36).substring(2, 10);
+
+    const stmt = db.prepare('INSERT INTO users (id, username, password_hash, nickname, created_at) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(userId, cleanUsername, passwordHash, nickname.trim(), Date.now(), function(err) {
+      if (err) {
+        if (err.message.includes('UNIQUE constraint failed')) {
+          return res.status(400).json({ error: 'Username is already taken' });
+        }
+        return res.status(500).json({ error: 'Database operation failed' });
+      }
+
+      const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+      
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
+      logAuditEvent('USER_REGISTER', userId, cleanUsername, null, { nickname: nickname.trim() }, req.ip);
+
+      res.status(201).json({
+        user: { id: userId, username: cleanUsername, nickname: nickname.trim(), avatar: null }
+      });
+    });
+    stmt.finalize();
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase();
+
+  db.get('SELECT * FROM users WHERE username = ?', [cleanUsername], async (err, user) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database query failed' });
+    }
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    try {
+      const isMatch = await bcrypt.compare(password, user.password_hash);
+      if (!isMatch) {
+        return res.status(400).json({ error: 'Invalid credentials' });
+      }
+
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+      
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
+      logAuditEvent('USER_LOGIN', user.id, user.username, null, null, req.ip);
+
+      res.json({
+        user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar }
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Login failed' });
+    }
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    db.get('SELECT id, username, nickname, avatar FROM users WHERE id = ?', [decoded.userId], (err, user) => {
+      if (err || !user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      res.json({ user });
+    });
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = req.cookies.token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      logAuditEvent('USER_LOGOUT', decoded.userId, null, null, null, req.ip);
+    } catch (err) {}
+  }
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  });
+  res.json({ success: true });
+});
+
+app.post('/api/auth/profile', async (req, res) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const { nickname, avatar, password } = req.body;
+
+    db.get('SELECT * FROM users WHERE id = ?', [decoded.userId], async (err, user) => {
+      if (err || !user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      let passwordHash = user.password_hash;
+      if (password && password.trim().length > 0) {
+        const salt = await bcrypt.genSalt(10);
+        passwordHash = await bcrypt.hash(password, salt);
+      }
+
+      const updatedNickname = nickname ? nickname.trim() : user.nickname;
+      const updatedAvatar = avatar !== undefined ? avatar : user.avatar;
+
+      db.run(
+        'UPDATE users SET nickname = ?, avatar = ?, password_hash = ? WHERE id = ?',
+        [updatedNickname, updatedAvatar, passwordHash, decoded.userId],
+        function(updateErr) {
+          if (updateErr) {
+            return res.status(500).json({ error: 'Failed to update profile' });
+          }
+          logAuditEvent('USER_PROFILE_UPDATE', user.id, user.username, null, { changedNickname: nickname !== user.nickname, changedAvatar: !!avatar, changedPassword: !!password }, req.ip);
+          res.json({
+            user: { id: user.id, username: user.username, nickname: updatedNickname, avatar: updatedAvatar }
+          });
+        }
+      );
+    });
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.send({ status: 'ok', timestamp: new Date() });
@@ -235,8 +470,15 @@ const rooms = new Map();
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
+  const getSocketIp = (socket) => {
+    return socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  };
+
+  let clientNickname = 'anonymous';
+
   socket.on('join-room', async ({ roomId, nickname }) => {
-    console.log(`User ${socket.id} (${nickname || 'anonymous'}) requesting to join room: ${roomId}`);
+    clientNickname = nickname || 'anonymous';
+    console.log(`User ${socket.id} (${clientNickname}) requesting to join room: ${roomId}`);
     
     if (!roomId) {
       socket.emit('error-msg', { message: 'Invalid Room ID' });
@@ -261,10 +503,11 @@ io.on('connection', (socket) => {
       .map(([id, info]) => ({ id, nickname: info.nickname || 'Friend' }));
 
     // Join the room
-    clients.set(socket.id, { id: socket.id, nickname: nickname || 'Friend' });
+    clients.set(socket.id, { id: socket.id, nickname: clientNickname });
     socket.join(roomId);
     
     console.log(`User ${socket.id} successfully joined room ${roomId}. Room size: ${clients.size}`);
+    logAuditEvent('ROOM_JOIN', null, clientNickname, roomId, { socketId: socket.id }, getSocketIp(socket));
     
     // Fetch room history from local cache (which is populated from Kafka logs)
     const history = getLocalRoomState(roomId);
@@ -273,11 +516,12 @@ io.on('connection', (socket) => {
     socket.emit('joined', { roomId, otherUsers, history });
 
     // Notify existing peers that a new user joined
-    socket.to(roomId).emit('peer-joined', { peerId: socket.id, nickname: nickname || 'Friend' });
+    socket.to(roomId).emit('peer-joined', { peerId: socket.id, nickname: clientNickname });
   });
 
   // Relays for data sync (Events either go to Kafka or get relayed immediately on local fallback)
   socket.on('chat', async ({ roomId, message }) => {
+    logAuditEvent('ROOM_CHAT', null, clientNickname, roomId, { message }, getSocketIp(socket));
     if (producer) {
       await publishEvent(roomId, 'chat', message, socket.id);
     } else {
@@ -308,6 +552,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('memory-add', async ({ roomId, item }) => {
+    logAuditEvent('ROOM_MEMORY_ADD', null, clientNickname, roomId, { item }, getSocketIp(socket));
     if (producer) {
       await publishEvent(roomId, 'memory-add', item, socket.id);
     } else {
@@ -318,6 +563,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('memory-delete', async ({ roomId, id }) => {
+    logAuditEvent('ROOM_MEMORY_DELETE', null, clientNickname, roomId, { id }, getSocketIp(socket));
     if (producer) {
       await publishEvent(roomId, 'memory-delete', { id }, socket.id);
     } else {
@@ -328,6 +574,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('timeline-add', async ({ roomId, event }) => {
+    logAuditEvent('ROOM_TIMELINE_ADD', null, clientNickname, roomId, { event }, getSocketIp(socket));
     if (producer) {
       await publishEvent(roomId, 'timeline-add', event, socket.id);
     } else {
@@ -338,6 +585,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('timeline-delete', async ({ roomId, id }) => {
+    logAuditEvent('ROOM_TIMELINE_DELETE', null, clientNickname, roomId, { id }, getSocketIp(socket));
     if (producer) {
       await publishEvent(roomId, 'timeline-delete', { id }, socket.id);
     } else {

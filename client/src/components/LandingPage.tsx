@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X } from 'lucide-react';
+import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X, User as UserIcon } from 'lucide-react';
 import { useWebRTC } from '../context/WebRTCContext';
+import { useAuth } from '../context/AuthContext';
+import { ProfileModal } from './ProfileModal';
 import { ambientSynth } from '../utils/WebAudioSynth';
 
 const quotes = [
@@ -15,28 +17,28 @@ const quotes = [
 ];
 
 export const LandingPage: React.FC = () => {
-  const { createRoom, joinRoom, roomFullError, myNickname } = useWebRTC();
+  const { createRoom, joinRoom, roomFullError } = useWebRTC();
+  const { user } = useAuth();
   const [currentQuoteIndex, setCurrentQuoteIndex] = useState(0);
   const [roomCodeInput, setRoomCodeInput] = useState('');
-  const [nicknameInput, setNicknameInput] = useState('');
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-  // Populate nickname input if already stored
-  useEffect(() => {
-    if (myNickname) {
-      setNicknameInput(myNickname);
-    }
-  }, [myNickname]);
-
-  // Check URL for invite code
+  // Check URL for invite code & support auto-rejoining
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
+    const savedNickname = localStorage.getItem('fv_nickname');
     if (roomParam) {
-      setRoomCodeInput(roomParam.trim().toUpperCase());
-      setShowJoinModal(true);
+      const cleanRoom = roomParam.trim().toUpperCase();
+      if (savedNickname) {
+        console.log(`Auto-rejoining room ${cleanRoom} as ${savedNickname}`);
+        joinRoom(cleanRoom, savedNickname);
+      } else {
+        setRoomCodeInput(cleanRoom);
+        setShowJoinModal(true);
+      }
     }
   }, []);
 
@@ -58,21 +60,11 @@ export const LandingPage: React.FC = () => {
     }
   };
 
-  const handleCreateClick = () => {
-    setShowCreateModal(true);
-  };
-
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (nicknameInput.trim()) {
-      createRoom(nicknameInput.trim());
-    }
-  };
-
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (roomCodeInput.trim() && nicknameInput.trim()) {
-      joinRoom(roomCodeInput.trim().toUpperCase(), nicknameInput.trim());
+    if (roomCodeInput.trim() && user) {
+      joinRoom(roomCodeInput.trim().toUpperCase(), user.nickname);
+      setShowJoinModal(false);
     }
   };
 
@@ -137,8 +129,24 @@ export const LandingPage: React.FC = () => {
         ))}
       </div>
 
-      {/* Music Toggle (Top Right Corner) */}
-      <div className="absolute top-6 right-6 z-50">
+      {/* Top Action Buttons (Profile & Music) */}
+      <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
+        {/* Profile Settings */}
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setIsProfileOpen(true)}
+          className="p-4 rounded-full glass-panel-light text-white shadow-lg flex items-center justify-center cursor-pointer border border-white/20 transition-all hover:bg-white/10 hover:border-white/30"
+          title="Profile Settings"
+        >
+          {user?.avatar ? (
+            <img src={user.avatar} alt="Avatar" className="w-6 h-6 rounded-full object-cover" />
+          ) : (
+            <UserIcon className="w-6 h-6 text-purple-400" />
+          )}
+        </motion.button>
+
+        {/* Music Toggle */}
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
@@ -203,7 +211,9 @@ export const LandingPage: React.FC = () => {
         >
           {/* Create Button */}
           <button
-            onClick={handleCreateClick}
+            onClick={() => {
+              if (user) createRoom(user.nickname);
+            }}
             className="flex-1 btn-primary py-4 px-8 flex items-center justify-center gap-3 text-lg font-bold shadow-2xl relative overflow-hidden group cursor-pointer"
           >
             <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
@@ -262,74 +272,6 @@ export const LandingPage: React.FC = () => {
         <div className="w-[1.5px] h-6 bg-slate-500 rounded-full" />
       </motion.div>
 
-      {/* CREATE ROOM MODAL */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowCreateModal(false)}
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
-            />
-
-            {/* Modal Body */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              className="relative w-full max-w-md p-8 rounded-2xl glass-panel text-white shadow-2xl z-10 overflow-hidden border border-white/20"
-            >
-              {/* Highlight Gradient Border top */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500" />
-
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
-              >
-                <X size={20} />
-              </button>
-
-              <h2 className="text-2xl font-bold font-display mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 flex items-center gap-2">
-                <Sparkles size={20} className="text-purple-400 animate-pulse" />
-                Create Room
-              </h2>
-              <p className="text-slate-300 text-sm mb-6">
-                Enter your nickname to create a new celebration space.
-              </p>
-
-              <form onSubmit={handleCreateSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="createNickname" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Your Nickname / Name
-                  </label>
-                  <input
-                    id="createNickname"
-                    type="text"
-                    required
-                    placeholder="Enter your nickname..."
-                    value={nicknameInput}
-                    onChange={(e) => setNicknameInput(e.target.value)}
-                    className="w-full glass-input px-4 py-3 text-base font-semibold border border-white/10"
-                    maxLength={15}
-                    autoFocus
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full btn-primary py-3 flex items-center justify-center gap-2 font-bold cursor-pointer"
-                >
-                  Create & Enter Room
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* JOIN ROOM MODAL */}
       <AnimatePresence>
         {showJoinModal && (
@@ -364,33 +306,16 @@ export const LandingPage: React.FC = () => {
                 Join Celebration
               </h2>
               <p className="text-slate-300 text-sm mb-6">
-                Enter your nickname and the room code to start the audio/video call.
+                Enter the room code to start the audio/video call.
               </p>
 
               {roomFullError && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-sm">
-                  ⚠️ This room is currently full (max 2 friends) or inactive.
+                  ⚠️ This room is currently full (max 5 friends) or inactive.
                 </div>
               )}
 
               <form onSubmit={handleJoin} className="space-y-4">
-                <div>
-                  <label htmlFor="joinNickname" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Your Nickname / Name
-                  </label>
-                  <input
-                    id="joinNickname"
-                    type="text"
-                    required
-                    placeholder="Enter your nickname..."
-                    value={nicknameInput}
-                    onChange={(e) => setNicknameInput(e.target.value)}
-                    className="w-full glass-input px-4 py-3 text-base font-semibold border border-white/10"
-                    maxLength={15}
-                    autoFocus
-                  />
-                </div>
-
                 <div>
                   <label htmlFor="roomCode" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                     Room Code
@@ -404,6 +329,7 @@ export const LandingPage: React.FC = () => {
                     onChange={(e) => setRoomCodeInput(e.target.value)}
                     className="w-full glass-input px-4 py-3 text-lg font-mono font-bold tracking-widest text-center uppercase border border-white/10"
                     maxLength={8}
+                    autoFocus
                   />
                 </div>
 
@@ -418,6 +344,9 @@ export const LandingPage: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* PROFILE SETTINGS MODAL */}
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
   );
 };
