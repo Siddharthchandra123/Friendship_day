@@ -93,7 +93,7 @@ async function isKafkaBrokerReachable(broker) {
 }
 
 // Background Kafka connection and consumer runner
-function emitRoomEvent(eventName, roomId, payload, senderId = null) {
+function emitRoomEvent(eventName, roomId, payload, senderId = null, targetSocket = null) {
   if (!io) return;
 
   const roomSockets = io.sockets.adapter.rooms.get(roomId);
@@ -101,6 +101,7 @@ function emitRoomEvent(eventName, roomId, payload, senderId = null) {
 
   for (const socketId of roomSockets) {
     if (senderId && socketId === senderId) continue;
+    if (targetSocket && socketId !== targetSocket.id) continue;
     const socket = io.sockets.sockets.get(socketId);
     if (socket) {
       socket.emit(eventName, payload);
@@ -260,21 +261,61 @@ async function startKafka() {
 // Trigger background Kafka start
 startKafka();
 
-async function publishEvent(roomId, eventType, payload, senderId) {
-  // Update local memory state (fallback / caching)
+async function publishEvent(roomId, eventType, payload, senderId, socket = null) {
   const localState = getLocalRoomState(roomId);
+
   if (!producer) {
     if (eventType === 'chat') {
       localState.chat.push(payload);
+      emitRoomEvent('chat', roomId, { senderId, message: payload }, senderId, socket);
+      emitRoomEvent('activity-feed', roomId, {
+        id: `local-chat-${payload.id || Date.now()}`,
+        type: 'chat',
+        title: 'New message',
+        message: payload.text || 'Sent a new message',
+        actorName: payload.sender || 'Someone',
+        timestamp: Date.now()
+      }, senderId, socket);
+    } else if (eventType === 'reaction') {
+      emitRoomEvent('reaction', roomId, { emoji: payload.emoji }, senderId, socket);
+      emitRoomEvent('activity-feed', roomId, {
+        id: `local-reaction-${Date.now()}`,
+        type: 'reaction',
+        title: 'Reaction sent',
+        message: `${payload.actorName || 'Someone'} reacted with ${payload.emoji}`,
+        actorName: payload.actorName || 'Someone',
+        timestamp: Date.now()
+      }, senderId, socket);
     } else if (eventType === 'memory-add') {
       localState.memories.push(payload);
+      emitRoomEvent('memory-add', roomId, { item: payload }, senderId, socket);
+      emitRoomEvent('activity-feed', roomId, {
+        id: `local-memory-${payload.id || Date.now()}`,
+        type: 'memory',
+        title: 'Memory added',
+        message: payload.title ? `Added “${payload.title}” to the memory wall` : 'Added a new memory',
+        actorName: payload.author || 'Someone',
+        timestamp: Date.now()
+      }, senderId, socket);
     } else if (eventType === 'memory-delete') {
       localState.memories = localState.memories.filter(m => m.id !== payload.id);
+      emitRoomEvent('memory-delete', roomId, { id: payload.id }, senderId, socket);
     } else if (eventType === 'timeline-add') {
       localState.timeline.push(payload);
+      emitRoomEvent('timeline-add', roomId, { event: payload }, senderId, socket);
+      emitRoomEvent('activity-feed', roomId, {
+        id: `local-timeline-${payload.id || Date.now()}`,
+        type: 'timeline',
+        title: 'Timeline update',
+        message: payload.text ? `Added ${payload.text}` : 'Added a new timeline moment',
+        actorName: payload.author || 'Someone',
+        timestamp: Date.now()
+      }, senderId, socket);
     } else if (eventType === 'timeline-delete') {
       localState.timeline = localState.timeline.filter(t => t.id !== payload.id);
+      emitRoomEvent('timeline-delete', roomId, { id: payload.id }, senderId, socket);
     }
+    return;
   }
 
   // Publish event to Kafka cluster if available
@@ -603,11 +644,9 @@ io.on('connection', (socket) => {
   socket.on('chat', async ({ roomId, message }) => {
     logAuditEvent('ROOM_CHAT', null, clientNickname, roomId, { message }, getSocketIp(socket));
     if (producer) {
-      await publishEvent(roomId, 'chat', message, socket.id);
+      await publishEvent(roomId, 'chat', message, socket.id, socket);
     } else {
-      const localState = getLocalRoomState(roomId);
-      localState.chat.push(message);
-      socket.to(roomId).emit('chat', { senderId: socket.id, message });
+      await publishEvent(roomId, 'chat', message, socket.id, socket);
     }
   });
 
@@ -629,9 +668,9 @@ io.on('connection', (socket) => {
 
   socket.on('reaction', async ({ roomId, emoji }) => {
     if (producer) {
-      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id);
+      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id, socket);
     } else {
-      socket.to(roomId).emit('reaction', { emoji });
+      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id, socket);
     }
   });
 
@@ -650,44 +689,36 @@ io.on('connection', (socket) => {
   socket.on('memory-add', async ({ roomId, item }) => {
     logAuditEvent('ROOM_MEMORY_ADD', null, clientNickname, roomId, { item }, getSocketIp(socket));
     if (producer) {
-      await publishEvent(roomId, 'memory-add', item, socket.id);
+      await publishEvent(roomId, 'memory-add', item, socket.id, socket);
     } else {
-      const localState = getLocalRoomState(roomId);
-      localState.memories.push(item);
-      socket.to(roomId).emit('memory-add', { item });
+      await publishEvent(roomId, 'memory-add', item, socket.id, socket);
     }
   });
 
   socket.on('memory-delete', async ({ roomId, id }) => {
     logAuditEvent('ROOM_MEMORY_DELETE', null, clientNickname, roomId, { id }, getSocketIp(socket));
     if (producer) {
-      await publishEvent(roomId, 'memory-delete', { id }, socket.id);
+      await publishEvent(roomId, 'memory-delete', { id }, socket.id, socket);
     } else {
-      const localState = getLocalRoomState(roomId);
-      localState.memories = localState.memories.filter(m => m.id !== id);
-      socket.to(roomId).emit('memory-delete', { id });
+      await publishEvent(roomId, 'memory-delete', { id }, socket.id, socket);
     }
   });
 
   socket.on('timeline-add', async ({ roomId, event }) => {
     logAuditEvent('ROOM_TIMELINE_ADD', null, clientNickname, roomId, { event }, getSocketIp(socket));
     if (producer) {
-      await publishEvent(roomId, 'timeline-add', event, socket.id);
+      await publishEvent(roomId, 'timeline-add', event, socket.id, socket);
     } else {
-      const localState = getLocalRoomState(roomId);
-      localState.timeline.push(event);
-      socket.to(roomId).emit('timeline-add', { event });
+      await publishEvent(roomId, 'timeline-add', event, socket.id, socket);
     }
   });
 
   socket.on('timeline-delete', async ({ roomId, id }) => {
     logAuditEvent('ROOM_TIMELINE_DELETE', null, clientNickname, roomId, { id }, getSocketIp(socket));
     if (producer) {
-      await publishEvent(roomId, 'timeline-delete', { id }, socket.id);
+      await publishEvent(roomId, 'timeline-delete', { id }, socket.id, socket);
     } else {
-      const localState = getLocalRoomState(roomId);
-      localState.timeline = localState.timeline.filter(t => t.id !== id);
-      socket.to(roomId).emit('timeline-delete', { id });
+      await publishEvent(roomId, 'timeline-delete', { id }, socket.id, socket);
     }
   });
 
