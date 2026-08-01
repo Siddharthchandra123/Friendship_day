@@ -20,7 +20,9 @@ export const VideoGrid: React.FC = () => {
     toggleVideo,
     toggleScreenShare,
     toggleBackgroundBlur,
-    roomId
+    roomId,
+    myNickname,
+    peerNicknames
   } = useWebRTC();
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -99,7 +101,7 @@ export const VideoGrid: React.FC = () => {
           {/* Audio/Video Indicators */}
           <div className="absolute top-3 left-3 flex items-center gap-2">
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-900/70 border border-white/10 backdrop-blur-md text-white">
-              You (Local)
+              {myNickname || 'You'} (Local)
             </span>
             {isAudioMuted && (
               <span className="p-1 rounded-full bg-red-500/80 border border-red-500 text-white" title="Microphone Muted">
@@ -135,7 +137,12 @@ export const VideoGrid: React.FC = () => {
         {/* REMOTE VIDEO STREAMS */}
         {Object.keys(remoteStreams).length > 0 ? (
           Object.entries(remoteStreams).map(([peerId, stream]) => (
-            <RemoteVideoTile key={peerId} peerId={peerId} stream={stream} />
+            <RemoteVideoTile 
+              key={peerId} 
+              peerId={peerId} 
+              stream={stream} 
+              nickname={peerNicknames[peerId] || 'Friend'} 
+            />
           ))
         ) : (
           /* Lobby Wait Panel / Disconnect Screen */
@@ -264,7 +271,7 @@ export const VideoGrid: React.FC = () => {
   );
 };
 
-const RemoteVideoTile: React.FC<{ peerId: string; stream: MediaStream }> = ({ peerId, stream }) => {
+const RemoteVideoTile: React.FC<{ peerId: string; stream: MediaStream; nickname: string }> = ({ peerId, stream, nickname }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -284,7 +291,7 @@ const RemoteVideoTile: React.FC<{ peerId: string; stream: MediaStream }> = ({ pe
       
       <div className="absolute top-3 left-3 flex items-center gap-2">
         <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-900/70 border border-white/10 backdrop-blur-md text-white">
-          Friend ({peerId.substring(0, 4)})
+          {nickname} ({peerId.substring(0, 4)})
         </span>
         
         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 border border-green-500/30 text-green-300 backdrop-blur-md flex items-center gap-1">

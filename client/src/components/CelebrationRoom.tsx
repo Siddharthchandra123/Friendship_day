@@ -22,7 +22,9 @@ export const CelebrationRoom: React.FC = () => {
     leaveRoom, 
     surpriseNotification, 
     triggerSurprise, 
-    roomId
+    roomId,
+    myNickname,
+    peerNicknames
   } = useWebRTC();
 
   const [activeTab, setActiveTab] = useState<TabType>('memory');
@@ -71,6 +73,29 @@ export const CelebrationRoom: React.FC = () => {
             <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">
               Live Celebration Room
             </span>
+          </div>
+        </div>
+
+        {/* Active Participants List */}
+        <div className="hidden md:flex items-center gap-3 bg-slate-950/60 border border-white/5 px-4 py-2 rounded-xl">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Active:
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="px-2.5 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-bold">
+              {myNickname || 'You'} (Me)
+            </span>
+            {Object.entries(peerNicknames).map(([id, name]) => (
+              <span key={id} className="px-2.5 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-bold animate-pulse">
+                {name}
+              </span>
+            ))}
           </div>
         </div>
 

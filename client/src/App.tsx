@@ -5,19 +5,7 @@ import { CelebrationRoom } from './components/CelebrationRoom';
 import { Heart } from 'lucide-react';
 
 const FriendVerseApp: React.FC = () => {
-  const { roomId, isConnecting, joinRoom } = useWebRTC();
-
-  // Handle instant-joining via invite URL query parameter: ?room=CODE
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room');
-    if (roomParam && roomId === '') {
-      console.log('Detected invite code in URL query:', roomParam);
-      // Wait for user gesture permission requirement by having them click or doing it immediately
-      // getUserMedia is triggered inside joinRoom. We run it instantly.
-      joinRoom(roomParam.trim().toUpperCase());
-    }
-  }, [roomId, joinRoom]);
+  const { roomId, isConnecting } = useWebRTC();
 
   // Clean URL when connected to a room to keep routing clean
   useEffect(() => {

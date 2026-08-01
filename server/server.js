@@ -20,14 +20,14 @@ const io = new Server(server, {
 });
 
 // Map to track room participants
-// roomId -> Set of socket.ids
+// roomId -> Map of socket.id -> { id: string, nickname: string }
 const rooms = new Map();
 
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  socket.on('join-room', ({ roomId }) => {
-    console.log(`User ${socket.id} requesting to join room: ${roomId}`);
+  socket.on('join-room', ({ roomId, nickname }) => {
+    console.log(`User ${socket.id} (${nickname || 'anonymous'}) requesting to join room: ${roomId}`);
     
     if (!roomId) {
       socket.emit('error-msg', { message: 'Invalid Room ID' });
@@ -36,7 +36,7 @@ io.on('connection', (socket) => {
 
     let clients = rooms.get(roomId);
     if (!clients) {
-      clients = new Set();
+      clients = new Map();
       rooms.set(roomId, clients);
     }
 
@@ -47,10 +47,12 @@ io.on('connection', (socket) => {
     }
 
     // Get existing other users in the room
-    const otherUsers = Array.from(clients).filter(id => id !== socket.id);
+    const otherUsers = Array.from(clients.entries())
+      .filter(([id]) => id !== socket.id)
+      .map(([id, info]) => ({ id, nickname: info.nickname || 'Friend' }));
 
     // Join the room
-    clients.add(socket.id);
+    clients.set(socket.id, { id: socket.id, nickname: nickname || 'Friend' });
     socket.join(roomId);
     
     console.log(`User ${socket.id} successfully joined room ${roomId}. Room size: ${clients.size}`);
@@ -59,7 +61,7 @@ io.on('connection', (socket) => {
     socket.emit('joined', { roomId, otherUsers });
 
     // Notify existing peers that a new user joined
-    socket.to(roomId).emit('peer-joined', { peerId: socket.id });
+    socket.to(roomId).emit('peer-joined', { peerId: socket.id, nickname: nickname || 'Friend' });
   });
 
   // Relay WebRTC Offer directly to a target peer

@@ -5,7 +5,8 @@ import confetti from 'canvas-confetti';
 // Types for components
 export interface Message {
   id: string;
-  sender: 'me' | 'peer';
+  sender: 'me' | 'peer' | 'system';
+  senderId?: string;
   text?: string;
   emoji?: string;
   timestamp: string;
@@ -71,6 +72,11 @@ interface WebRTCContextType {
   peerId: string | null;
   peerDisconnected: boolean;
   roomFullError: boolean;
+
+  // Nicknames
+  myNickname: string;
+  setMyNickname: (name: string) => void;
+  peerNicknames: Record<string, string>;
   
   // Media streams & states
   localStream: MediaStream | null;
@@ -82,8 +88,8 @@ interface WebRTCContextType {
   isBackgroundBlurred: boolean;
   
   // Control actions
-  createRoom: () => string;
-  joinRoom: (id: string) => void;
+  createRoom: (nickname: string) => string;
+  joinRoom: (id: string, nickname: string) => void;
   leaveRoom: () => void;
   toggleAudio: () => void;
   toggleVideo: () => void;
@@ -166,6 +172,19 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [peerDisconnected, setPeerDisconnected] = useState(false);
   const [roomFullError, setRoomFullError] = useState(false);
 
+  // Nicknames
+  const [myNickname, setMyNicknameState] = useState(() => {
+    return localStorage.getItem('fv_nickname') || '';
+  });
+  const myNicknameRef = useRef(myNickname);
+  const [peerNicknames, setPeerNicknames] = useState<Record<string, string>>({});
+
+  const setMyNickname = (name: string) => {
+    setMyNicknameState(name);
+    myNicknameRef.current = name;
+    localStorage.setItem('fv_nickname', name);
+  };
+
   // Streams
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
@@ -233,17 +252,31 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnecting(otherUsers.length > 0);
       setPeerDisconnected(false);
 
-      // Initiate WebRTC call to all existing users in the room
-      otherUsers.forEach((peerId: string) => {
-        initiateCall(peerId);
+      const names: Record<string, string> = {};
+      otherUsers.forEach((peer: any) => {
+        const id = typeof peer === 'object' ? peer.id : peer;
+        const name = typeof peer === 'object' ? peer.nickname : 'Friend';
+        names[id] = name;
+        initiateCall(id);
       });
+      setPeerNicknames(prev => ({ ...prev, ...names }));
     });
 
-    socket.on('peer-joined', async ({ peerId }) => {
-      console.log(`Peer joined: ${peerId}. Waiting for their connection offer...`);
+    socket.on('peer-joined', async ({ peerId, nickname }) => {
+      const name = nickname || 'Friend';
+      console.log(`Peer joined: ${peerId} (${name}). Waiting for their connection offer...`);
       setPeerId(peerId);
       setIsConnecting(true);
       setPeerDisconnected(false);
+      setPeerNicknames(prev => ({ ...prev, [peerId]: name }));
+
+      // Add system message
+      setChatMessages(prev => [...prev, {
+        id: `sys-${Date.now()}-${Math.random()}`,
+        sender: 'system',
+        text: `${name} joined the celebration room`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
     });
 
     socket.on('offer', async ({ sdp, senderId }) => {
@@ -282,6 +315,18 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     socket.on('peer-left', ({ peerId }) => {
       console.log(`Peer left the room: ${peerId}`);
+      setPeerNicknames(prev => {
+        const name = prev[peerId] || 'A friend';
+        setChatMessages(chatPrev => [...chatPrev, {
+          id: `sys-${Date.now()}-${Math.random()}`,
+          sender: 'system',
+          text: `${name} left the room`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
       handlePeerLeft(peerId);
     });
 
@@ -423,6 +468,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnecting(false);
       setPeerDisconnected(false);
 
+      // Sync nickname profile
+      dc.send(JSON.stringify({
+        type: 'profile-sync',
+        payload: {
+          nickname: myNicknameRef.current
+        }
+      }));
+
       // Sync initial state if we are the initiator
       dc.send(JSON.stringify({
         type: 'sync-state',
@@ -441,7 +494,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     dc.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        handleIncomingDataChannelMsg(msg.type, msg.payload);
+        handleIncomingDataChannelMsg(msg.type, msg.payload, peerId);
       } catch (err) {
         console.error('Error parsing data channel message', err);
       }
@@ -476,8 +529,17 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
 
   // Dispatch Incoming DataChannel Messages to React State
-  const handleIncomingDataChannelMsg = (type: string, payload: any) => {
+  const handleIncomingDataChannelMsg = (type: string, payload: any, senderPeerId: string) => {
     switch (type) {
+      case 'profile-sync':
+        if (payload.nickname) {
+          setPeerNicknames(prev => ({
+            ...prev,
+            [senderPeerId]: payload.nickname
+          }));
+        }
+        break;
+
       case 'sync-state':
         if (payload.timelineEvents) setTimelineEvents(payload.timelineEvents);
         if (payload.memories) setMemories(payload.memories);
@@ -487,6 +549,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setChatMessages(prev => [...prev, {
           id: payload.id,
           sender: 'peer',
+          senderId: senderPeerId,
           text: payload.text,
           emoji: payload.emoji,
           timestamp: payload.timestamp
@@ -667,6 +730,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     dataChannelsRef.current.clear();
 
     setRemoteStreams({});
+    setPeerNicknames({});
     setIsConnected(false);
     setIsConnecting(false);
     setRoomId('');
@@ -683,22 +747,24 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return result;
   };
 
-  const createRoom = (): string => {
+  const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
+    setMyNickname(nickname);
     setRoomFullError(false);
     getUserMedia().then(() => {
       socketRef.current?.connect();
-      socketRef.current?.emit('join-room', { roomId: newRoomId });
+      socketRef.current?.emit('join-room', { roomId: newRoomId, nickname });
     });
     return newRoomId;
   };
 
-  const joinRoom = (id: string) => {
+  const joinRoom = (id: string, nickname: string) => {
     const upperId = id.trim().toUpperCase();
+    setMyNickname(nickname);
     setRoomFullError(false);
     getUserMedia().then(() => {
       socketRef.current?.connect();
-      socketRef.current?.emit('join-room', { roomId: upperId });
+      socketRef.current?.emit('join-room', { roomId: upperId, nickname });
     });
   };
 
@@ -1075,6 +1141,9 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         peerId,
         peerDisconnected,
         roomFullError,
+        myNickname,
+        setMyNickname,
+        peerNicknames,
         localStream,
         remoteStream: Object.values(remoteStreams)[0] || null,
         remoteStreams,

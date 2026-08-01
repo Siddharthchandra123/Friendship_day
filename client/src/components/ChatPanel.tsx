@@ -12,7 +12,8 @@ export const ChatPanel: React.FC = () => {
     sendEmojiReaction, 
     peerTyping, 
     setMyTyping,
-    isConnected
+    isConnected,
+    peerNicknames
   } = useWebRTC();
 
   const [inputText, setInputText] = useState('');
@@ -91,6 +92,25 @@ export const ChatPanel: React.FC = () => {
           <AnimatePresence>
             {chatMessages.map((msg) => {
               const isMe = msg.sender === 'me';
+              const isSystem = msg.sender === 'system';
+
+              if (isSystem) {
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex justify-center my-2"
+                  >
+                    <span className="px-3.5 py-1 rounded-full bg-slate-900/60 border border-white/5 text-[11px] text-slate-400 font-medium tracking-wide">
+                      {msg.text}
+                    </span>
+                  </motion.div>
+                );
+              }
+
+              const senderName = isMe ? 'You' : (msg.senderId ? (peerNicknames[msg.senderId] || 'Friend') : 'Friend');
+
               return (
                 <motion.div
                   key={msg.id}
@@ -99,6 +119,11 @@ export const ChatPanel: React.FC = () => {
                   className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
                 >
                   <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    {!isMe && (
+                      <span className="text-[10px] text-slate-400 mb-0.5 px-1.5 font-semibold">
+                        {senderName}
+                      </span>
+                    )}
                     <div
                       className={`px-4 py-2.5 rounded-2xl text-sm font-medium ${
                         isMe
@@ -115,14 +140,16 @@ export const ChatPanel: React.FC = () => {
             })}
           </AnimatePresence>
         )}
-
+ 
         {/* Peer Typing Indicator */}
         {peerTyping && (
           <div className="flex justify-start items-center gap-3 py-2">
             <div className="bg-slate-800 px-4 py-3 rounded-2xl rounded-bl-none border border-white/5 flex items-center min-h-[36px] w-[54px]">
               <div className="dot-typing" />
             </div>
-            <span className="text-xs text-slate-500 font-medium">Friend is typing...</span>
+            <span className="text-xs text-slate-500 font-medium">
+              {Object.values(peerNicknames)[0] || 'Friend'} is typing...
+            </span>
           </div>
         )}
         <div ref={chatEndRef} />
