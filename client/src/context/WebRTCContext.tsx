@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { Room, RoomEvent } from 'livekit-client';
 import confetti from 'canvas-confetti';
 
 // Types for components
@@ -77,7 +78,7 @@ interface WebRTCContextType {
   myNickname: string;
   setMyNickname: (name: string) => void;
   peerNicknames: Record<string, string>;
-  
+
   // Media streams & states
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
@@ -86,7 +87,7 @@ interface WebRTCContextType {
   isVideoMuted: boolean;
   isScreenSharing: boolean;
   isBackgroundBlurred: boolean;
-  
+
   // Control actions
   createRoom: (nickname: string) => string;
   joinRoom: (id: string, nickname: string) => void;
@@ -102,13 +103,13 @@ interface WebRTCContextType {
   sendEmojiReaction: (emoji: string) => void;
   peerTyping: boolean;
   setMyTyping: (isTyping: boolean) => void;
-  
+
   // Drawing Canvas
   canvasStrokes: any[];
   sendCanvasDraw: (drawData: any) => void;
   sendCanvasClear: () => void;
   sendCanvasUndo: (remainingStrokes: any[]) => void;
-  
+
   // Memory Wall
   memories: MemoryItem[];
   addMemoryItem: (title: string, type: 'photo' | 'voice' | 'text', content: string) => void;
@@ -141,24 +142,6 @@ interface WebRTCContextType {
 }
 
 const WebRTCContext = createContext<WebRTCContextType | undefined>(undefined);
-
-// WebRTC ICE configuration using Google public STUN servers
-const rtcConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp'
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
-  ],
-};
 
 // Replace this block in client/src/context/WebRTCContext.tsx
 const SIGNALING_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
@@ -216,11 +199,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     timelineEventsRef.current = timelineEvents;
   }, [timelineEvents]);
-  
+
   // Games
   const [currentMiniGame, setCurrentMiniGame] = useState<'none' | 'tictactoe' | 'rps' | 'memory' | 'emojiguess'>('none');
   const [gameState, setGameState] = useState<GameState>({});
-  
+
   // Quiz
   const [quizState, setQuizState] = useState<QuizState>({
     currentQuestionIndex: 0,
@@ -242,12 +225,126 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Surprise popup notification
   const [surpriseNotification, setSurpriseNotification] = useState<{ message: string; type: string } | null>(null);
 
-  // WebRTC / Socket References
+  // WebSockets / LiveKit References
   const socketRef = useRef<Socket | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
+  const livekitRoomRef = useRef<Room | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  // Connect to LiveKit Room
+  const connectToLiveKit = async (roomName: string, identity: string) => {
+    try {
+      const restUrl = SIGNALING_URL.replace('ws://', 'http://').replace('wss://', 'https://');
+      console.log(`LiveKit: Requesting room token from ${restUrl}/api/livekit-token...`);
+      const response = await fetch(`${restUrl}/api/livekit-token?roomId=${roomName}&nickname=${encodeURIComponent(identity)}&socketId=${socketRef.current?.id}`);
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('Failed to get LiveKit token:', data.error);
+        return;
+      }
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      livekitRoomRef.current = room;
+
+      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+        console.log(`LiveKit: Track subscribed from ${participant.identity}`, track.kind);
+        if (track.kind === 'video' || track.kind === 'audio') {
+          const mediaStreamTrack = track.mediaStreamTrack;
+          if (mediaStreamTrack) {
+            setRemoteStreams(prev => {
+              const next = { ...prev };
+              const oldStream = next[participant.identity];
+              const newStream = new MediaStream();
+
+              if (oldStream) {
+                // Copy existing tracks of different kinds
+                oldStream.getTracks().forEach(t => {
+                  if (t.kind !== mediaStreamTrack.kind) {
+                    newStream.addTrack(t);
+                  }
+                });
+              }
+
+              newStream.addTrack(mediaStreamTrack);
+              next[participant.identity] = newStream;
+              return next;
+            });
+            setIsConnected(true);
+            setIsConnecting(false);
+          }
+        }
+      });
+
+      room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
+        console.log(`LiveKit: Track unsubscribed from ${participant.identity}`);
+        setRemoteStreams(prev => {
+          const next = { ...prev };
+          const oldStream = next[participant.identity];
+          if (oldStream) {
+            const newStream = new MediaStream();
+            oldStream.getTracks().forEach(t => {
+              if (t.id !== track.mediaStreamTrack?.id) {
+                newStream.addTrack(t);
+              }
+            });
+            if (newStream.getTracks().length > 0) {
+              next[participant.identity] = newStream;
+            } else {
+              delete next[participant.identity];
+            }
+          }
+          return next;
+        });
+      });
+
+      room.on(RoomEvent.ParticipantConnected, (participant) => {
+        console.log(`LiveKit: Participant connected: ${participant.identity}`);
+        setPeerNicknames(prev => ({
+          ...prev,
+          [participant.identity]: participant.name || 'Friend'
+        }));
+      });
+
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        console.log(`LiveKit: Participant disconnected: ${participant.identity}`);
+        setPeerNicknames(prev => {
+          const next = { ...prev };
+          delete next[participant.identity];
+          return next;
+        });
+        setRemoteStreams(prev => {
+          const next = { ...prev };
+          delete next[participant.identity];
+          return next;
+        });
+      });
+
+      console.log(`LiveKit: Connecting to ${data.serverUrl}...`);
+      await room.connect(data.serverUrl, data.token);
+      console.log('LiveKit: Connected successfully!');
+
+      // Publish local stream tracks
+      const localStreamObj = localStreamRef.current;
+      if (localStreamObj) {
+        console.log('LiveKit: Publishing camera and mic tracks...');
+        const videoTrack = localStreamObj.getVideoTracks()[0];
+        const audioTrack = localStreamObj.getAudioTracks()[0];
+        if (videoTrack) {
+          await room.localParticipant.publishTrack(videoTrack, { name: 'camera-video' });
+        }
+        if (audioTrack) {
+          await room.localParticipant.publishTrack(audioTrack, { name: 'microphone-audio' });
+        }
+      }
+
+    } catch (err) {
+      console.error('Error connecting to LiveKit room:', err);
+    }
+  };
 
   // Initialize socket connection on component mount
   useEffect(() => {
@@ -257,28 +354,33 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const socket = socketRef.current;
 
-    socket.on('joined', ({ roomId: joinedRoomId, otherUsers }) => {
+    socket.on('joined', ({ roomId: joinedRoomId, otherUsers, history }) => {
       console.log(`Joined room ${joinedRoomId}. Other users present:`, otherUsers);
       setRoomId(joinedRoomId);
       roomIdRef.current = joinedRoomId;
       setIsConnecting(otherUsers ? otherUsers.length > 0 : false);
       setPeerDisconnected(false);
 
-      if (otherUsers) {
-        const names: Record<string, string> = {};
-        otherUsers.forEach((peer: any) => {
-          const id = typeof peer === 'object' ? peer.id : peer;
-          const name = typeof peer === 'object' ? peer.nickname : 'Friend';
-          names[id] = name;
-          initiateCall(id);
-        });
-        setPeerNicknames(prev => ({ ...prev, ...names }));
+      const names: Record<string, string> = {};
+      otherUsers.forEach((peer: any) => {
+        names[peer.id] = peer.nickname;
+      });
+      setPeerNicknames(prev => ({ ...prev, ...names }));
+
+      // Load Kafka room history logs
+      if (history) {
+        if (history.chat) setChatMessages(history.chat);
+        if (history.memories) setMemories(history.memories.map((m: any) => ({ ...m, author: m.author || 'peer' })));
+        if (history.timeline) setTimelineEvents(history.timeline);
       }
+
+      // Initialize LiveKit
+      connectToLiveKit(joinedRoomId, myNicknameRef.current);
     });
 
     socket.on('peer-joined', async ({ peerId, nickname }) => {
       const name = nickname || 'Friend';
-      console.log(`Peer joined: ${peerId} (${name}). Waiting for their connection offer...`);
+      console.log(`Peer joined: ${peerId} (${name})`);
       setPeerId(peerId);
       setIsConnecting(true);
       setPeerDisconnected(false);
@@ -291,40 +393,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         text: `${name} joined the celebration room`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
-    });
-
-    socket.on('offer', async ({ sdp, senderId }) => {
-      console.log(`Received WebRTC Offer from ${senderId}`);
-      let pc = peerConnectionsRef.current.get(senderId);
-      if (!pc) {
-        pc = createPeerConnection(senderId);
-      }
-      
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      
-      socket.emit('answer', { sdp: pc.localDescription, targetUserId: senderId });
-    });
-
-    socket.on('answer', async ({ sdp, senderId }) => {
-      console.log(`Received WebRTC Answer from ${senderId}`);
-      const pc = peerConnectionsRef.current.get(senderId);
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      }
-    });
-
-    socket.on('ice-candidate', async ({ candidate, senderId }) => {
-      console.log(`Received ICE Candidate from ${senderId}`);
-      const pc = peerConnectionsRef.current.get(senderId);
-      if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error('Error adding ICE candidate', e);
-        }
-      }
     });
 
     socket.on('peer-left', ({ peerId }) => {
@@ -341,13 +409,169 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         delete next[peerId];
         return next;
       });
-      handlePeerLeft(peerId);
+      setRemoteStreams(prev => {
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
     });
 
     socket.on('room-full', () => {
       console.log('Room is full');
       setRoomFullError(true);
       setIsConnecting(false);
+    });
+
+    // WSS Event Relays (replacing WebRTC Data Channel sync)
+    socket.on('chat', ({ senderId, message }) => {
+      setChatMessages(prev => [...prev, {
+        id: message.id,
+        sender: 'peer',
+        senderId: senderId,
+        text: message.text,
+        emoji: message.emoji,
+        timestamp: message.timestamp
+      }]);
+    });
+
+    socket.on('typing', ({ isTyping }) => {
+      setPeerTyping(isTyping);
+    });
+
+    socket.on('reaction', ({ emoji }) => {
+      triggerFloatingReaction(emoji);
+    });
+
+    socket.on('draw-stroke', ({ stroke }) => {
+      setCanvasStrokes(prev => {
+        const idx = prev.findIndex(s => s.id === stroke.id);
+        if (idx !== -1) {
+          const next = [...prev];
+          next[idx] = stroke;
+          return next;
+        }
+        return [...prev, stroke];
+      });
+    });
+
+    socket.on('draw-clear', () => {
+      setCanvasStrokes([]);
+    });
+
+    socket.on('draw-undo', ({ remainingStrokes }) => {
+      setCanvasStrokes(remainingStrokes);
+    });
+
+    socket.on('memory-add', ({ item }) => {
+      setMemories(prev => [...prev, { ...item, author: 'peer' }]);
+    });
+
+    socket.on('memory-delete', ({ id }) => {
+      setMemories(prev => prev.filter(m => m.id !== id));
+    });
+
+    socket.on('timeline-add', ({ event }) => {
+      setTimelineEvents(prev => [...prev, event]);
+    });
+
+    socket.on('timeline-delete', ({ id }) => {
+      setTimelineEvents(prev => prev.filter(e => e.id !== id));
+    });
+
+    socket.on('select-game', ({ game }) => {
+      setCurrentMiniGame(game);
+      setGameState({});
+    });
+
+    socket.on('game-action', (payload) => {
+      const swappedGame: any = { ...payload };
+      if ('tictactoeTurn' in payload) {
+        swappedGame.tictactoeTurn = payload.tictactoeTurn === 'me' ? 'peer' : 'me';
+      }
+      if ('rpsChoiceMe' in payload) {
+        swappedGame.rpsChoicePeer = payload.rpsChoiceMe;
+        delete swappedGame.rpsChoiceMe;
+      }
+      if ('rpsChoicePeer' in payload) {
+        swappedGame.rpsChoiceMe = payload.rpsChoicePeer;
+        delete swappedGame.rpsChoicePeer;
+      }
+      if ('memoryActiveTurn' in payload) {
+        swappedGame.memoryActiveTurn = payload.memoryActiveTurn === 'me' ? 'peer' : 'me';
+      }
+      if ('memoryScore' in payload) {
+        swappedGame.memoryScore = {
+          me: payload.memoryScore.peer,
+          peer: payload.memoryScore.me
+        };
+      }
+      setGameState(prev => ({ ...prev, ...swappedGame }));
+    });
+
+    socket.on('quiz-action', (payload) => {
+      const swappedQuiz: any = { ...payload };
+      if ('mySelection' in payload) {
+        swappedQuiz.peerSelection = payload.mySelection;
+        delete swappedQuiz.mySelection;
+      }
+      if ('peerSelection' in payload) {
+        swappedQuiz.mySelection = payload.peerSelection;
+        delete swappedQuiz.peerSelection;
+      }
+      if ('myScore' in payload) {
+        swappedQuiz.peerScore = payload.myScore;
+        delete swappedQuiz.myScore;
+      }
+      if ('peerScore' in payload) {
+        swappedQuiz.myScore = payload.peerScore;
+        delete swappedQuiz.peerScore;
+      }
+      setQuizState(prev => ({ ...prev, ...swappedQuiz }));
+    });
+
+    socket.on('quiz-reset', () => {
+      setQuizState({
+        currentQuestionIndex: 0,
+        myScore: 0,
+        peerScore: 0,
+        mySelection: null,
+        peerSelection: null,
+        quizEnded: false
+      });
+    });
+
+    socket.on('meter-action', (payload) => {
+      const swappedMeter: any = { ...payload };
+      if ('questionsAnswersMe' in payload) {
+        swappedMeter.questionsAnswersPeer = payload.questionsAnswersMe;
+        delete swappedMeter.questionsAnswersMe;
+      }
+      if ('questionsAnswersPeer' in payload) {
+        swappedMeter.questionsAnswersMe = payload.questionsAnswersPeer;
+        delete swappedMeter.questionsAnswersPeer;
+      }
+      if ('submittedMe' in payload) {
+        swappedMeter.submittedPeer = payload.submittedMe;
+        delete swappedMeter.submittedMe;
+      }
+      if ('submittedPeer' in payload) {
+        swappedMeter.submittedMe = payload.submittedPeer;
+        delete swappedMeter.submittedPeer;
+      }
+      setMeterState(prev => ({ ...prev, ...swappedMeter }));
+    });
+
+    socket.on('meter-reset', () => {
+      setMeterState({
+        questionsAnswersMe: [],
+        questionsAnswersPeer: [],
+        submittedMe: false,
+        submittedPeer: false
+      });
+    });
+
+    socket.on('surprise', ({ surpriseType, message }) => {
+      handleSurpriseReception(surpriseType, message);
     });
 
     return () => {
@@ -372,8 +596,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStreamRef.current = stream;
       return stream;
     } catch (err) {
-      console.error('Error accessing camera/microphone, falling back to audio only or blank track:', err);
-      // Fallback: create empty tracks if permission denied
+      console.error('Error accessing camera/microphone, falling back to oscillator/blank stream:', err);
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 480;
@@ -382,20 +605,15 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, 640, 480);
       }
-      const fps = 30;
-      const videoStream = canvas.captureStream(fps);
-      
-      // Try audio oscillator fallback to create silent track
+      const videoStream = canvas.captureStream(30);
       let audioTrack: MediaStreamTrack;
       try {
         const audioCtx = new AudioContext();
         const dest = audioCtx.createMediaStreamDestination();
         audioTrack = dest.stream.getAudioTracks()[0];
       } catch (e) {
-        // Mock track
-        audioTrack = videoStream.getVideoTracks()[0]; // dummy
+        audioTrack = videoStream.getVideoTracks()[0];
       }
-
       const dummyStream = new MediaStream([videoStream.getVideoTracks()[0], audioTrack]);
       setLocalStream(dummyStream);
       localStreamRef.current = dummyStream;
@@ -403,330 +621,45 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const createPeerConnection = (peerId: string): RTCPeerConnection => {
-    console.log(`Creating Peer Connection for peer ${peerId}...`);
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnectionsRef.current.set(peerId, pc);
-
-    // Handle incoming stream tracks from peer
-    pc.ontrack = (event) => {
-      console.log(`Received remote track from ${peerId}`, event.streams[0]);
-      setRemoteStreams(prev => ({
-        ...prev,
-        [peerId]: event.streams[0]
-      }));
-      setIsConnected(true);
-      setIsConnecting(false);
-    };
-
-    // Send local tracks
-    const stream = localStreamRef.current;
-    if (stream) {
-      console.log(`Adding local tracks to peer connection for ${peerId}:`, stream.getTracks().length);
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
-      });
-    } else {
-      console.warn('No local stream found in ref when adding tracks!');
-    }
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current?.emit('ice-candidate', {
-          candidate: event.candidate,
-          targetUserId: peerId,
-        });
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log(`ICE Connection State for ${peerId}: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-        handlePeerLeft(peerId);
-      }
-    };
-
-    pc.ondatachannel = (event) => {
-      console.log(`Received peer Data Channel from ${peerId}`);
-      setupDataChannel(event.channel, peerId, false);
-    };
-
-    return pc;
-  };
-
-  const initiateCall = async (peerId: string) => {
-    console.log(`Initiating WebRTC call to peer: ${peerId}`);
-    const pc = createPeerConnection(peerId);
-
-    // Create Data Channel (only initiator of this peer-to-peer connection creates it)
-    const dc = pc.createDataChannel('friendverse-channel');
-    setupDataChannel(dc, peerId, true);
-
-    // Create SDP Offer
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    socketRef.current?.emit('offer', {
-      sdp: pc.localDescription,
-      targetUserId: peerId,
-    });
-  };
-
-  // Setup DataChannel Listeners and Handlers
-  const setupDataChannel = (dc: RTCDataChannel, peerId: string, isInitiator: boolean) => {
-    dataChannelsRef.current.set(peerId, dc);
-
-    dc.onopen = () => {
-      console.log(`RTC Data Channel with ${peerId} is OPEN`);
-      setIsConnected(true);
-      setIsConnecting(false);
-      setPeerDisconnected(false);
-
-      // Sync nickname profile
-      dc.send(JSON.stringify({
-        type: 'profile-sync',
-        payload: {
-          nickname: myNicknameRef.current
-        }
-      }));
-
-      // Sync initial state only if we are the connection receiver (non-initiator host)
-      // to avoid overwriting host state with newcomer's empty state
-      if (!isInitiator) {
-        console.log('Sending initial memories and timeline sync state to initiator...');
-        dc.send(JSON.stringify({
-          type: 'sync-state',
-          payload: {
-            timelineEvents: timelineEventsRef.current,
-            memories: memoriesRef.current
-          }
-        }));
-      }
-    };
-
-    dc.onclose = () => {
-      console.log(`RTC Data Channel with ${peerId} is CLOSED`);
-      handlePeerLeft(peerId);
-    };
-
-    dc.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        handleIncomingDataChannelMsg(msg.type, msg.payload, peerId);
-      } catch (err) {
-        console.error('Error parsing data channel message', err);
-      }
-    };
-  };
-
-  const handlePeerLeft = (peerId: string) => {
-    console.log(`Cleaning up WebRTC peer: ${peerId}`);
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (pc) {
-      pc.close();
-      peerConnectionsRef.current.delete(peerId);
-    }
-    const dc = dataChannelsRef.current.get(peerId);
-    if (dc) {
-      dc.close();
-      dataChannelsRef.current.delete(peerId);
-    }
-
-    setRemoteStreams(prev => {
-      const next = { ...prev };
-      delete next[peerId];
-      
-      const hasPeers = Object.keys(next).length > 0;
-      if (!hasPeers) {
-        setIsConnected(false);
-        setPeerDisconnected(true);
-      }
-      return next;
-    });
-  };
-
-
-  // Dispatch Incoming DataChannel Messages to React State
-  const handleIncomingDataChannelMsg = (type: string, payload: any, senderPeerId: string) => {
-    switch (type) {
-      case 'profile-sync':
-        if (payload.nickname) {
-          setPeerNicknames(prev => ({
-            ...prev,
-            [senderPeerId]: payload.nickname
-          }));
-        }
-        break;
-
-      case 'sync-state':
-        if (payload.timelineEvents) setTimelineEvents(payload.timelineEvents);
-        if (payload.memories) setMemories(payload.memories);
-        break;
-        
-      case 'chat':
-        setChatMessages(prev => [...prev, {
-          id: payload.id,
-          sender: 'peer',
-          senderId: senderPeerId,
-          text: payload.text,
-          emoji: payload.emoji,
-          timestamp: payload.timestamp
-        }]);
-        break;
-        
-      case 'typing':
-        setPeerTyping(payload.isTyping);
-        break;
-
-      case 'reaction':
-        triggerFloatingReaction(payload.emoji);
-        break;
-
-      case 'draw-stroke':
-        setCanvasStrokes(prev => {
-          const idx = prev.findIndex(s => s.id === payload.stroke.id);
-          if (idx !== -1) {
-            const next = [...prev];
-            next[idx] = payload.stroke;
-            return next;
-          }
-          return [...prev, payload.stroke];
-        });
-        break;
-
-      case 'draw-clear':
-        setCanvasStrokes([]);
-        break;
-
-      case 'draw-undo':
-        setCanvasStrokes(payload.remainingStrokes);
-        break;
-
-      case 'memory-add':
-        setMemories(prev => [...prev, { ...payload.item, author: 'peer' }]);
-        break;
-
-      case 'memory-delete':
-        setMemories(prev => prev.filter(m => m.id !== payload.id));
-        break;
-
-      case 'timeline-add':
-        setTimelineEvents(prev => [...prev, payload.event]);
-        break;
-
-      case 'timeline-delete':
-        setTimelineEvents(prev => prev.filter(e => e.id !== payload.id));
-        break;
-
-      case 'select-game':
-        setCurrentMiniGame(payload.game);
-        setGameState({}); // Clear old game state
-        break;
-
-      case 'game-action':
-        // Map relative me/peer states to local states
-        const swappedGame: any = { ...payload };
-        if ('tictactoeTurn' in payload) {
-          swappedGame.tictactoeTurn = payload.tictactoeTurn === 'me' ? 'peer' : 'me';
-        }
-        if ('rpsChoiceMe' in payload) {
-          swappedGame.rpsChoicePeer = payload.rpsChoiceMe;
-          delete swappedGame.rpsChoiceMe;
-        }
-        if ('rpsChoicePeer' in payload) {
-          swappedGame.rpsChoiceMe = payload.rpsChoicePeer;
-          delete swappedGame.rpsChoicePeer;
-        }
-        if ('memoryActiveTurn' in payload) {
-          swappedGame.memoryActiveTurn = payload.memoryActiveTurn === 'me' ? 'peer' : 'me';
-        }
-        if ('memoryScore' in payload) {
-          swappedGame.memoryScore = {
-            me: payload.memoryScore.peer,
-            peer: payload.memoryScore.me
-          };
-        }
-        setGameState(prev => ({ ...prev, ...swappedGame }));
-        break;
-
-      case 'quiz-action':
-        const swappedQuiz: any = { ...payload };
-        if ('mySelection' in payload) {
-          swappedQuiz.peerSelection = payload.mySelection;
-          delete swappedQuiz.mySelection;
-        }
-        if ('peerSelection' in payload) {
-          swappedQuiz.mySelection = payload.peerSelection;
-          delete swappedQuiz.peerSelection;
-        }
-        if ('myScore' in payload) {
-          swappedQuiz.peerScore = payload.myScore;
-          delete swappedQuiz.myScore;
-        }
-        if ('peerScore' in payload) {
-          swappedQuiz.myScore = payload.peerScore;
-          delete swappedQuiz.peerScore;
-        }
-        setQuizState(prev => ({ ...prev, ...swappedQuiz }));
-        break;
-
-      case 'quiz-reset':
-        setQuizState({
-          currentQuestionIndex: 0,
-          myScore: 0,
-          peerScore: 0,
-          mySelection: null,
-          peerSelection: null,
-          quizEnded: false
-        });
-        break;
-
-      case 'meter-action':
-        const swappedMeter: any = { ...payload };
-        if ('questionsAnswersMe' in payload) {
-          swappedMeter.questionsAnswersPeer = payload.questionsAnswersMe;
-          delete swappedMeter.questionsAnswersMe;
-        }
-        if ('questionsAnswersPeer' in payload) {
-          swappedMeter.questionsAnswersMe = payload.questionsAnswersPeer;
-          delete swappedMeter.questionsAnswersPeer;
-        }
-        if ('submittedMe' in payload) {
-          swappedMeter.submittedPeer = payload.submittedMe;
-          delete swappedMeter.submittedMe;
-        }
-        if ('submittedPeer' in payload) {
-          swappedMeter.submittedMe = payload.submittedPeer;
-          delete swappedMeter.submittedPeer;
-        }
-        setMeterState(prev => ({ ...prev, ...swappedMeter }));
-        break;
-
-      case 'meter-reset':
-        setMeterState({
-          questionsAnswersMe: [],
-          questionsAnswersPeer: [],
-          submittedMe: false,
-          submittedPeer: false
-        });
-        break;
-
-      case 'surprise':
-        handleSurpriseReception(payload.surpriseType, payload.message);
-        break;
-
-      default:
-        console.warn('Unknown message type received: ', type);
-    }
-  };
-
+  // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
-    const msg = JSON.stringify({ type, payload });
-    dataChannelsRef.current.forEach((dc) => {
-      if (dc.readyState === 'open') {
-        dc.send(msg);
-      }
-    });
+    if (type === 'chat') {
+      socketRef.current?.emit('chat', { roomId: roomIdRef.current, message: payload });
+    } else if (type === 'memory-add') {
+      socketRef.current?.emit('memory-add', { roomId: roomIdRef.current, item: payload.item });
+    } else if (type === 'memory-delete') {
+      socketRef.current?.emit('memory-delete', { roomId: roomIdRef.current, id: payload.id });
+    } else if (type === 'timeline-add') {
+      socketRef.current?.emit('timeline-add', { roomId: roomIdRef.current, event: payload.event });
+    } else if (type === 'timeline-delete') {
+      socketRef.current?.emit('timeline-delete', { roomId: roomIdRef.current, id: payload.id });
+    } else if (type === 'select-game') {
+      socketRef.current?.emit('select-game', { roomId: roomIdRef.current, game: payload.game });
+    } else if (type === 'game-action') {
+      socketRef.current?.emit('game-action', { roomId: roomIdRef.current, payload });
+    } else if (type === 'quiz-action') {
+      socketRef.current?.emit('quiz-action', { roomId: roomIdRef.current, payload });
+    } else if (type === 'quiz-reset') {
+      socketRef.current?.emit('quiz-reset', { roomId: roomIdRef.current });
+    } else if (type === 'meter-action') {
+      socketRef.current?.emit('meter-action', { roomId: roomIdRef.current, payload });
+    } else if (type === 'meter-reset') {
+      socketRef.current?.emit('meter-reset', { roomId: roomIdRef.current });
+    } else if (type === 'surprise') {
+      socketRef.current?.emit('surprise', { roomId: roomIdRef.current, surpriseType: payload.surpriseType, message: payload.message });
+    } else if (type === 'typing') {
+      socketRef.current?.emit('typing', { roomId: roomIdRef.current, isTyping: payload.isTyping });
+    } else if (type === 'reaction') {
+      socketRef.current?.emit('reaction', { roomId: roomIdRef.current, emoji: payload.emoji });
+    } else if (type === 'draw-stroke') {
+      socketRef.current?.emit('draw-stroke', { roomId: roomIdRef.current, stroke: payload.stroke });
+    } else if (type === 'draw-clear') {
+      socketRef.current?.emit('draw-clear', { roomId: roomIdRef.current });
+    } else if (type === 'draw-undo') {
+      socketRef.current?.emit('draw-undo', { roomId: roomIdRef.current, remainingStrokes: payload.remainingStrokes });
+    } else {
+      socketRef.current?.emit(type, { roomId: roomIdRef.current, ...payload });
+    }
   };
 
   const cleanupMediaAndRTC = () => {
@@ -741,11 +674,10 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       screenStreamRef.current = null;
     }
 
-    peerConnectionsRef.current.forEach((pc) => pc.close());
-    peerConnectionsRef.current.clear();
-
-    dataChannelsRef.current.forEach((dc) => dc.close());
-    dataChannelsRef.current.clear();
+    if (livekitRoomRef.current) {
+      livekitRoomRef.current.disconnect();
+      livekitRoomRef.current = null;
+    }
 
     setRemoteStreams({});
     setPeerNicknames({});
@@ -800,6 +732,10 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioMuted(!audioTrack.enabled);
+        if (livekitRoomRef.current) {
+          livekitRoomRef.current.localParticipant.setMicrophoneEnabled(audioTrack.enabled)
+            .catch(err => console.error('LiveKit: Error muting mic:', err));
+        }
       }
     }
   };
@@ -811,6 +747,10 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoMuted(!videoTrack.enabled);
+        if (livekitRoomRef.current) {
+          livekitRoomRef.current.localParticipant.setCameraEnabled(videoTrack.enabled)
+            .catch(err => console.error('LiveKit: Error muting camera:', err));
+        }
       }
     }
   };
@@ -823,23 +763,21 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsScreenSharing(true);
 
         const screenTrack = stream.getVideoTracks()[0];
-        
-        // Replace video track in ALL RTCPeerConnections
-        peerConnectionsRef.current.forEach((pc) => {
-          const senders = pc.getSenders();
-          const videoSender = senders.find(sender => sender.track?.kind === 'video');
-          if (videoSender) {
-            videoSender.replaceTrack(screenTrack);
-          }
-        });
 
-        // When sharing ends (e.g. user clicks browser native stop sharing button)
+        // Publish screen track in LiveKit Room if connected
+        if (livekitRoomRef.current) {
+          const videoPublication = livekitRoomRef.current.localParticipant.videoTrackPublications.values().next().value;
+          if (videoPublication) {
+            // In LiveKit, we unpublish camera and publish screen, or publish as screen share
+            await livekitRoomRef.current.localParticipant.unpublishTrack(videoPublication.track!);
+            await livekitRoomRef.current.localParticipant.publishTrack(screenTrack, { name: 'screen-video' });
+          }
+        }
+
         screenTrack.onended = () => {
           stopScreenSharing();
         };
 
-        // Update local display stream for PIP
-        // Merge screen video track with local audio track
         const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
         const newStream = new MediaStream([screenTrack]);
         if (localAudioTrack) newStream.addTrack(localAudioTrack);
@@ -861,22 +799,22 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     setIsScreenSharing(false);
 
-    // Re-obtain original webcam media track
-    navigator.mediaDevices.getUserMedia({ video: true }).then((camStream) => {
+    navigator.mediaDevices.getUserMedia({ video: true }).then(async (camStream) => {
       const camTrack = camStream.getVideoTracks()[0];
-      
-      peerConnectionsRef.current.forEach((pc) => {
-        const senders = pc.getSenders();
-        const videoSender = senders.find(sender => sender.track?.kind === 'video');
-        if (videoSender) {
-          videoSender.replaceTrack(camTrack);
+
+      // Unpublish screen and republish camera in LiveKit
+      if (livekitRoomRef.current) {
+        const videoPublication = livekitRoomRef.current.localParticipant.videoTrackPublications.values().next().value;
+        if (videoPublication) {
+          await livekitRoomRef.current.localParticipant.unpublishTrack(videoPublication.track!);
+          await livekitRoomRef.current.localParticipant.publishTrack(camTrack, { name: 'camera-video' });
         }
-      });
+      }
 
       const mergedStream = new MediaStream([camTrack]);
       const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
       if (localAudioTrack) mergedStream.addTrack(localAudioTrack);
-      
+
       setLocalStream(mergedStream);
       localStreamRef.current = mergedStream;
     });
@@ -916,7 +854,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     reactionEl.innerText = emoji;
     reactionEl.style.position = 'absolute';
     reactionEl.style.bottom = '0px';
-    // Random horizontal layout
     reactionEl.style.left = `${Math.random() * 80 + 10}%`;
     reactionEl.style.fontSize = '3rem';
     reactionEl.style.pointerEvents = 'none';
@@ -926,13 +863,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     container.appendChild(reactionEl);
 
-    // Animate rising and fading
     requestAnimationFrame(() => {
       reactionEl.style.transform = `translateY(-${window.innerHeight * 0.8}px) scale(1.5) rotate(${Math.random() * 60 - 30}deg)`;
       reactionEl.style.opacity = '0';
     });
 
-    // Remove element after animation
     setTimeout(() => {
       reactionEl.remove();
     }, 2500);
@@ -1005,7 +940,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const sendGameAction = (_actionType: string, payload: any) => {
-    // Action format sent: games are state driven, peer updates state variables
     setGameState(prev => {
       const newState = { ...prev, ...payload };
       sendDataChannelMsg('game-action', payload);
@@ -1072,7 +1006,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const triggerSurprise = (type: 'confetti' | 'hearts' | 'compliment' | 'joke') => {
     let msgText = '';
-    
+
     if (type === 'confetti') {
       confetti({
         particleCount: 150,
@@ -1091,19 +1025,16 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       msgText = `shared a chuckle: "${rand}"`;
     }
 
-    // Display locally
     setSurpriseNotification({
       message: `You ${msgText}`,
       type
     });
     setTimeout(() => setSurpriseNotification(null), 5000);
 
-    // Sync to peer
     sendDataChannelMsg('surprise', { surpriseType: type, message: msgText });
   };
 
   const handleSurpriseReception = (type: string, message: string) => {
-    // Fire graphical effects on receiver side too!
     if (type === 'confetti') {
       confetti({
         particleCount: 150,
@@ -1169,7 +1100,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isVideoMuted,
         isScreenSharing,
         isBackgroundBlurred,
-        
+
         createRoom,
         joinRoom,
         leaveRoom,
@@ -1183,20 +1114,20 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         sendEmojiReaction,
         peerTyping,
         setMyTyping,
-        
+
         canvasStrokes,
         sendCanvasDraw,
         sendCanvasClear,
         sendCanvasUndo,
-        
+
         memories,
         addMemoryItem,
         deleteMemoryItem,
-        
+
         timelineEvents,
         addTimelineEvent,
         deleteTimelineEvent,
-        
+
         currentMiniGame,
         gameState,
         selectMiniGame,
@@ -1215,7 +1146,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }}
     >
       {children}
-      {/* Absolute overlay container for floating reacts across the viewport */}
       <div id="floating-reactions-container" className="fixed inset-0 pointer-events-none overflow-hidden z-[9999]" />
     </WebRTCContext.Provider>
   );
