@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const net = require('net');
+const { getKafkaBootstrapServers, getKafkaTopicName, getKafkaConsumerGroupId } = require('./kafkaConfig');
 
 const app = express();
 app.use(cors({
@@ -28,7 +29,9 @@ const logAuditEvent = db.logAuditEvent;
 
 // Initialize Kafka client if broker is configured
 let kafka, producer, consumer;
-const KAFKA_BROKER = process.env.KAFKA_BROKER;
+const KAFKA_BROKER = getKafkaBootstrapServers();
+const KAFKA_TOPIC = getKafkaTopicName();
+const KAFKA_GROUP_ID = getKafkaConsumerGroupId();
 
 const localHistory = new Map(); // roomId -> { chat, memories, timeline }
 
@@ -90,6 +93,21 @@ async function isKafkaBrokerReachable(broker) {
 }
 
 // Background Kafka connection and consumer runner
+function emitRoomEvent(eventName, roomId, payload, senderId = null) {
+  if (!io) return;
+
+  const roomSockets = io.sockets.adapter.rooms.get(roomId);
+  if (!roomSockets) return;
+
+  for (const socketId of roomSockets) {
+    if (senderId && socketId === senderId) continue;
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket) {
+      socket.emit(eventName, payload);
+    }
+  }
+}
+
 async function startKafka() {
   const isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
   const finalBroker = (isRender && KAFKA_BROKER === 'localhost:9092') ? null : KAFKA_BROKER;
@@ -99,41 +117,51 @@ async function startKafka() {
     return;
   }
 
-  const reachable = await isKafkaBrokerReachable(finalBroker);
+  const bootstrapServers = finalBroker.split(',');
+  const reachable = await Promise.any(
+    bootstrapServers.map(async (server) => {
+      const reachableServer = await isKafkaBrokerReachable(server);
+      if (!reachableServer) {
+        throw new Error(server);
+      }
+      return server;
+    })
+  ).catch(() => null);
+
   if (!reachable) {
-    console.log(`Kafka broker ${finalBroker} is not reachable. Using local memory queues.`);
+    console.log(`Kafka brokers ${bootstrapServers.join(', ')} are not reachable. Using local memory queues.`);
     producer = null;
     consumer = null;
     return;
   }
 
   try {
-    console.log(`Connecting to self-hosted Kafka broker at ${finalBroker}...`);
+    console.log(`Connecting to Kafka brokers at ${bootstrapServers.join(', ')}...`);
     const { logLevel } = require('kafkajs');
     kafka = new Kafka({
       clientId: 'friendverse-gateway',
-      brokers: [finalBroker],
-      logLevel: logLevel.ERROR, // Suppress verbose warning/info logs
+      brokers: bootstrapServers,
+      logLevel: logLevel.ERROR,
       retry: {
         initialRetryTime: 100,
-        retries: 1 // Fail fast if broker is unavailable
+        retries: 1
       }
     });
 
     producer = kafka.producer();
     // Unique group ID per gateway node so they all get a copy of room events (Pub/Sub pattern)
     consumer = kafka.consumer({ 
-      groupId: 'friendverse-group-' + Math.random().toString(36).substring(2, 8) 
+      groupId: KAFKA_GROUP_ID
     });
 
     const admin = kafka.admin();
     await admin.connect();
     const existingTopics = await admin.listTopics();
-    if (!existingTopics.includes('friendverse-events')) {
-      console.log('Creating topic "friendverse-events"...');
+    if (!existingTopics.includes(KAFKA_TOPIC)) {
+      console.log(`Creating topic "${KAFKA_TOPIC}"...`);
       await admin.createTopics({
         topics: [{
-          topic: 'friendverse-events',
+          topic: KAFKA_TOPIC,
           numPartitions: 1,
           replicationFactor: 1
         }]
@@ -145,7 +173,7 @@ async function startKafka() {
     await consumer.connect();
     
     // Subscribe to friendverse events
-    await consumer.subscribe({ topic: 'friendverse-events', fromBeginning: true });
+    await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
     console.log('Kafka Producer and Consumer connected successfully.');
 
     // Event Sourcing replay / updates loop
@@ -165,24 +193,57 @@ async function startKafka() {
             if (!localState.chat.some(c => c.id === payload.id)) {
               localState.chat.push(payload);
             }
-            // Relay chat to other users in the room
-            io.to(roomId).emit('chat', { senderId, message: payload });
+            emitRoomEvent('chat', roomId, { senderId, message: payload }, senderId);
+            emitRoomEvent('activity-feed', roomId, {
+              id: `kafka-chat-${payload.id || Date.now()}`,
+              type: 'chat',
+              title: 'New message',
+              message: payload.text || 'Sent a new message',
+              actorName: payload.sender || 'Someone',
+              timestamp: Date.now()
+            }, senderId);
+          } else if (type === 'reaction') {
+            emitRoomEvent('reaction', roomId, { emoji: payload.emoji }, senderId);
+            emitRoomEvent('activity-feed', roomId, {
+              id: `kafka-reaction-${Date.now()}`,
+              type: 'reaction',
+              title: 'Reaction sent',
+              message: `${payload.actorName || 'Someone'} reacted with ${payload.emoji}`,
+              actorName: payload.actorName || 'Someone',
+              timestamp: Date.now()
+            }, senderId);
           } else if (type === 'memory-add') {
             if (!localState.memories.some(m => m.id === payload.id)) {
               localState.memories.push(payload);
             }
-            io.to(roomId).emit('memory-add', { item: payload });
+            emitRoomEvent('memory-add', roomId, { item: payload }, senderId);
+            emitRoomEvent('activity-feed', roomId, {
+              id: `kafka-memory-${payload.id || Date.now()}`,
+              type: 'memory',
+              title: 'Memory added',
+              message: payload.title ? `Added “${payload.title}” to the memory wall` : 'Added a new memory',
+              actorName: payload.author || 'Someone',
+              timestamp: Date.now()
+            }, senderId);
           } else if (type === 'memory-delete') {
             localState.memories = localState.memories.filter(m => m.id !== payload.id);
-            io.to(roomId).emit('memory-delete', { id: payload.id });
+            emitRoomEvent('memory-delete', roomId, { id: payload.id }, senderId);
           } else if (type === 'timeline-add') {
             if (!localState.timeline.some(t => t.id === payload.id)) {
               localState.timeline.push(payload);
             }
-            io.to(roomId).emit('timeline-add', { event: payload });
+            emitRoomEvent('timeline-add', roomId, { event: payload }, senderId);
+            emitRoomEvent('activity-feed', roomId, {
+              id: `kafka-timeline-${payload.id || Date.now()}`,
+              type: 'timeline',
+              title: 'Timeline update',
+              message: payload.text ? `Added ${payload.text}` : 'Added a new timeline moment',
+              actorName: payload.author || 'Someone',
+              timestamp: Date.now()
+            }, senderId);
           } else if (type === 'timeline-delete') {
             localState.timeline = localState.timeline.filter(t => t.id !== payload.id);
-            io.to(roomId).emit('timeline-delete', { id: payload.id });
+            emitRoomEvent('timeline-delete', roomId, { id: payload.id }, senderId);
           }
         } catch (e) {
           console.error('Error parsing or handling consumed message:', e);
@@ -227,7 +288,7 @@ async function publishEvent(roomId, eventType, payload, senderId) {
         timestamp: Date.now()
       };
       await producer.send({
-        topic: 'friendverse-events',
+        topic: KAFKA_TOPIC,
         messages: [{
           key: roomId,
           value: JSON.stringify(event)
@@ -474,12 +535,6 @@ app.post('/api/auth/profile', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.send({ status: 'ok', timestamp: new Date() });
-});
-
-
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -572,8 +627,12 @@ io.on('connection', (socket) => {
     socket.to(targetPeerId).emit('webrtc-candidate', { peerId: socket.id, candidate });
   });
 
-  socket.on('reaction', ({ roomId, emoji }) => {
-    socket.to(roomId).emit('reaction', { emoji });
+  socket.on('reaction', async ({ roomId, emoji }) => {
+    if (producer) {
+      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id);
+    } else {
+      socket.to(roomId).emit('reaction', { emoji });
+    }
   });
 
   socket.on('draw-stroke', ({ roomId, stroke }) => {
@@ -693,6 +752,15 @@ function handleUserLeave(socket, roomId) {
     }
   }
 }
+
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    kafka: producer ? 'connected' : 'fallback',
+    topic: KAFKA_TOPIC,
+    groupId: KAFKA_GROUP_ID
+  });
+});
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
