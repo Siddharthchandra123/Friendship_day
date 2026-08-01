@@ -143,10 +143,9 @@ interface WebRTCContextType {
 
 const WebRTCContext = createContext<WebRTCContextType | undefined>(undefined);
 
-// Replace this block in client/src/context/WebRTCContext.tsx
 const SIGNALING_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ? 'http://localhost:5000'
-  : 'https://friendverse-signaling.onrender.com'; // Paste your Render URL here
+  : 'https://friendverse-signaling.onrender.com'; // Dedicated backend server URL
 
 export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomId, setRoomId] = useState('');
