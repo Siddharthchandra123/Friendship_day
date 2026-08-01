@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Room, RoomEvent } from 'livekit-client';
 import confetti from 'canvas-confetti';
 
 // Types for components
@@ -224,124 +223,143 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Surprise popup notification
   const [surpriseNotification, setSurpriseNotification] = useState<{ message: string; type: string } | null>(null);
 
-  // WebSockets / LiveKit References
+  // WebSockets / WebRTC References
   const socketRef = useRef<Socket | null>(null);
-  const livekitRoomRef = useRef<Room | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const activePeerIdRef = useRef<string | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  // Connect to LiveKit Room
-  const connectToLiveKit = async (roomName: string, identity: string) => {
+  const closePeerConnection = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.onicecandidate = null;
+      peerConnectionRef.current.ontrack = null;
+      peerConnectionRef.current.onconnectionstatechange = null;
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    activePeerIdRef.current = null;
+    pendingCandidatesRef.current = [];
+  };
+
+  const createPeerConnection = (peerId: string) => {
+    if (peerConnectionRef.current) {
+      return peerConnectionRef.current;
+    }
+
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: ['stun:stun.l.google.com:1930'] }]
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('webrtc-candidate', {
+          roomId: roomIdRef.current,
+          targetPeerId: peerId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    peerConnection.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      if (remoteStream) {
+        setRemoteStreams(prev => ({ ...prev, [peerId]: remoteStream }));
+        setIsConnected(true);
+        setIsConnecting(false);
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === 'connected') {
+        setIsConnected(true);
+        setIsConnecting(false);
+      }
+
+      if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
+        setPeerDisconnected(true);
+        setRemoteStreams(prev => {
+          const next = { ...prev };
+          delete next[peerId];
+          return next;
+        });
+      }
+    };
+
+    const localStreamObj = localStreamRef.current;
+    if (localStreamObj) {
+      localStreamObj.getTracks().forEach(track => peerConnection.addTrack(track, localStreamObj));
+    }
+
+    peerConnectionRef.current = peerConnection;
+    activePeerIdRef.current = peerId;
+    return peerConnection;
+  };
+
+  const connectToPeer = async (peerId: string) => {
+    if (!peerId || peerId === socketRef.current?.id) {
+      return;
+    }
+
+    const peerConnection = createPeerConnection(peerId);
+
     try {
-      const restUrl = SIGNALING_URL.replace('ws://', 'http://').replace('wss://', 'https://');
-      console.log(`LiveKit: Requesting room token from ${restUrl}/api/livekit-token...`);
-      const response = await fetch(`${restUrl}/api/livekit-token?roomId=${roomName}&nickname=${encodeURIComponent(identity)}&socketId=${socketRef.current?.id}`);
-      const data = await response.json();
-
-      if (data.error) {
-        console.error('Failed to get LiveKit token:', data.error);
-        return;
-      }
-
-      const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socketRef.current?.emit('webrtc-offer', {
+        roomId: roomIdRef.current,
+        targetPeerId: peerId,
+        offer
       });
-      livekitRoomRef.current = room;
-
-      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-        console.log(`LiveKit: Track subscribed from ${participant.identity}`, track.kind);
-        if (track.kind === 'video' || track.kind === 'audio') {
-          const mediaStreamTrack = track.mediaStreamTrack;
-          if (mediaStreamTrack) {
-            setRemoteStreams(prev => {
-              const next = { ...prev };
-              const oldStream = next[participant.identity];
-              const newStream = new MediaStream();
-
-              if (oldStream) {
-                // Copy existing tracks of different kinds
-                oldStream.getTracks().forEach(t => {
-                  if (t.kind !== mediaStreamTrack.kind) {
-                    newStream.addTrack(t);
-                  }
-                });
-              }
-
-              newStream.addTrack(mediaStreamTrack);
-              next[participant.identity] = newStream;
-              return next;
-            });
-            setIsConnected(true);
-            setIsConnecting(false);
-          }
-        }
-      });
-
-      room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
-        console.log(`LiveKit: Track unsubscribed from ${participant.identity}`);
-        setRemoteStreams(prev => {
-          const next = { ...prev };
-          const oldStream = next[participant.identity];
-          if (oldStream) {
-            const newStream = new MediaStream();
-            oldStream.getTracks().forEach(t => {
-              if (t.id !== track.mediaStreamTrack?.id) {
-                newStream.addTrack(t);
-              }
-            });
-            if (newStream.getTracks().length > 0) {
-              next[participant.identity] = newStream;
-            } else {
-              delete next[participant.identity];
-            }
-          }
-          return next;
-        });
-      });
-
-      room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log(`LiveKit: Participant connected: ${participant.identity}`);
-        setPeerNicknames(prev => ({
-          ...prev,
-          [participant.identity]: participant.name || 'Friend'
-        }));
-      });
-
-      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log(`LiveKit: Participant disconnected: ${participant.identity}`);
-        setPeerNicknames(prev => {
-          const next = { ...prev };
-          delete next[participant.identity];
-          return next;
-        });
-        setRemoteStreams(prev => {
-          const next = { ...prev };
-          delete next[participant.identity];
-          return next;
-        });
-      });
-
-      console.log(`LiveKit: Connecting to ${data.serverUrl}...`);
-      await room.connect(data.serverUrl, data.token);
-      console.log('LiveKit: Connected successfully!');
-
-      // Publish local stream tracks
-      const localStreamObj = localStreamRef.current;
-      if (localStreamObj) {
-        console.log('LiveKit: Publishing camera and mic tracks...');
-        const videoTrack = localStreamObj.getVideoTracks()[0];
-        const audioTrack = localStreamObj.getAudioTracks()[0];
-        if (videoTrack) {
-          await room.localParticipant.publishTrack(videoTrack, { name: 'camera-video' });
-        }
-        if (audioTrack) {
-          await room.localParticipant.publishTrack(audioTrack, { name: 'microphone-audio' });
-        }
-      }
-
     } catch (err) {
-      console.error('Error connecting to LiveKit room:', err);
+      console.error('Error creating WebRTC offer:', err);
+      setIsConnecting(false);
+      setIsConnected(false);
+    }
+  };
+
+  const handleIncomingOffer = async ({ peerId, offer }: { peerId: string; offer: RTCSessionDescriptionInit }) => {
+    const peerConnection = createPeerConnection(peerId);
+
+    try {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      socketRef.current?.emit('webrtc-answer', {
+        roomId: roomIdRef.current,
+        targetPeerId: peerId,
+        answer
+      });
+    } catch (err) {
+      console.error('Error handling WebRTC offer:', err);
+    }
+  };
+
+  const handleIncomingAnswer = async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection) {
+      return;
+    }
+
+    try {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (err) {
+      console.error('Error handling WebRTC answer:', err);
+    }
+  };
+
+  const handleIncomingCandidate = async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection) {
+      pendingCandidatesRef.current.push(candidate);
+      return;
+    }
+
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.error('Error adding incoming ICE candidate:', err);
     }
   };
 
@@ -373,8 +391,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (history.timeline) setTimelineEvents(history.timeline);
       }
 
-      // Initialize LiveKit
-      connectToLiveKit(joinedRoomId, myNicknameRef.current);
+      if (otherUsers.length > 0) {
+        setTimeout(() => {
+          void connectToPeer(otherUsers[0].id);
+        }, 300);
+      }
     });
 
     socket.on('peer-joined', async ({ peerId, nickname }) => {
@@ -384,6 +405,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnecting(true);
       setPeerDisconnected(false);
       setPeerNicknames(prev => ({ ...prev, [peerId]: name }));
+      if (socketRef.current?.id && peerId !== socketRef.current.id) {
+        setTimeout(() => {
+          void connectToPeer(peerId);
+        }, 300);
+      }
 
       // Add system message
       setChatMessages(prev => [...prev, {
@@ -419,6 +445,18 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('Room is full');
       setRoomFullError(true);
       setIsConnecting(false);
+    });
+
+    socket.on('webrtc-offer', async ({ peerId, offer }) => {
+      await handleIncomingOffer({ peerId, offer });
+    });
+
+    socket.on('webrtc-answer', async ({ answer }) => {
+      await handleIncomingAnswer({ answer });
+    });
+
+    socket.on('webrtc-candidate', async ({ candidate }) => {
+      await handleIncomingCandidate({ candidate });
     });
 
     // WSS Event Relays (replacing WebRTC Data Channel sync)
@@ -739,10 +777,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       screenStreamRef.current = null;
     }
 
-    if (livekitRoomRef.current) {
-      livekitRoomRef.current.disconnect();
-      livekitRoomRef.current = null;
-    }
+    closePeerConnection();
 
     setRemoteStreams({});
     setPeerNicknames({});
@@ -797,9 +832,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioMuted(!audioTrack.enabled);
-        if (livekitRoomRef.current) {
-          livekitRoomRef.current.localParticipant.setMicrophoneEnabled(audioTrack.enabled)
-            .catch(err => console.error('LiveKit: Error muting mic:', err));
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.getSenders().forEach(sender => {
+            if (sender.track?.kind === 'audio') {
+              sender.replaceTrack(audioTrack).catch(() => undefined);
+            }
+          });
         }
       }
     }
@@ -812,9 +850,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoMuted(!videoTrack.enabled);
-        if (livekitRoomRef.current) {
-          livekitRoomRef.current.localParticipant.setCameraEnabled(videoTrack.enabled)
-            .catch(err => console.error('LiveKit: Error muting camera:', err));
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.getSenders().forEach(sender => {
+            if (sender.track?.kind === 'video') {
+              sender.replaceTrack(videoTrack).catch(() => undefined);
+            }
+          });
         }
       }
     }
@@ -829,14 +870,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         const screenTrack = stream.getVideoTracks()[0];
 
-        // Publish screen track in LiveKit Room if connected
-        if (livekitRoomRef.current) {
-          const videoPublication = livekitRoomRef.current.localParticipant.videoTrackPublications.values().next().value;
-          if (videoPublication) {
-            // In LiveKit, we unpublish camera and publish screen, or publish as screen share
-            await livekitRoomRef.current.localParticipant.unpublishTrack(videoPublication.track!);
-            await livekitRoomRef.current.localParticipant.publishTrack(screenTrack, { name: 'screen-video' });
-          }
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.getSenders().forEach(sender => {
+            if (sender.track?.kind === 'video') {
+              sender.replaceTrack(screenTrack).catch(() => undefined);
+            }
+          });
         }
 
         screenTrack.onended = () => {
@@ -867,13 +906,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     navigator.mediaDevices.getUserMedia({ video: true }).then(async (camStream) => {
       const camTrack = camStream.getVideoTracks()[0];
 
-      // Unpublish screen and republish camera in LiveKit
-      if (livekitRoomRef.current) {
-        const videoPublication = livekitRoomRef.current.localParticipant.videoTrackPublications.values().next().value;
-        if (videoPublication) {
-          await livekitRoomRef.current.localParticipant.unpublishTrack(videoPublication.track!);
-          await livekitRoomRef.current.localParticipant.publishTrack(camTrack, { name: 'camera-video' });
-        }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.getSenders().forEach(sender => {
+          if (sender.track?.kind === 'video') {
+            sender.replaceTrack(camTrack).catch(() => undefined);
+          }
+        });
       }
 
       const mergedStream = new MediaStream([camTrack]);

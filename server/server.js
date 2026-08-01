@@ -3,7 +3,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const { AccessToken } = require('livekit-server-sdk');
 const { Kafka } = require('kafkajs');
 const { OAuth2Client } = require('google-auth-library');
 const cookieParser = require('cookie-parser');
@@ -480,43 +479,6 @@ app.get('/health', (req, res) => {
   res.send({ status: 'ok', timestamp: new Date() });
 });
 
-// Endpoint to generate LiveKit Access Tokens
-app.get('/api/livekit-token', async (req, res) => {
-  const { roomId, nickname, socketId } = req.query;
-  if (!roomId || !nickname) {
-    return res.status(400).json({ error: 'roomId and nickname are required' });
-  }
-
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
-  const livekitUrl = process.env.LIVEKIT_URL;
-
-  if (!apiKey || !apiSecret || !livekitUrl) {
-    console.warn('LiveKit credentials missing, returning mock connection details.');
-    return res.json({ token: 'mock-token', serverUrl: 'ws://localhost:7880', isMock: true });
-  }
-
-  try {
-    const identity = socketId || (nickname + '_' + Math.random().toString(36).substring(2, 6));
-    const at = new AccessToken(apiKey, apiSecret, {
-      identity: identity,
-      name: nickname,
-    });
-
-    at.addGrant({
-      roomJoin: true,
-      room: roomId,
-      canPublish: true,
-      canSubscribe: true,
-    });
-
-    const token = await at.toJwt();
-    res.json({ token, serverUrl: livekitUrl });
-  } catch (error) {
-    console.error('Error generating LiveKit token:', error);
-    res.status(500).json({ error: 'Failed to generate token' });
-  }
-});
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -596,6 +558,18 @@ io.on('connection', (socket) => {
 
   socket.on('typing', ({ roomId, isTyping }) => {
     socket.to(roomId).emit('typing', { senderId: socket.id, isTyping });
+  });
+
+  socket.on('webrtc-offer', ({ roomId, targetPeerId, offer }) => {
+    socket.to(targetPeerId).emit('webrtc-offer', { peerId: socket.id, offer });
+  });
+
+  socket.on('webrtc-answer', ({ roomId, targetPeerId, answer }) => {
+    socket.to(targetPeerId).emit('webrtc-answer', { peerId: socket.id, answer });
+  });
+
+  socket.on('webrtc-candidate', ({ roomId, targetPeerId, candidate }) => {
+    socket.to(targetPeerId).emit('webrtc-candidate', { peerId: socket.id, candidate });
   });
 
   socket.on('reaction', ({ roomId, emoji }) => {
