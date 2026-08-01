@@ -5,10 +5,12 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const { AccessToken } = require('livekit-server-sdk');
 const { Kafka } = require('kafkajs');
+const { OAuth2Client } = require('google-auth-library');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const net = require('net');
 
 const app = express();
 app.use(cors({
@@ -19,6 +21,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'friendverse_super_secret_fallback_key';
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Import file-based database helper (pure JS fallback for Render compatibility)
 const db = require('./db');
@@ -48,6 +51,45 @@ function getLocalRoomState(roomId) {
   return state;
 }
 
+async function isKafkaBrokerReachable(broker) {
+  return new Promise((resolve) => {
+    const [host, portValue] = broker.split(':');
+    const port = Number(portValue || 9092);
+    const socket = new net.Socket();
+    let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.removeAllListeners();
+    };
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      resolve(false);
+    }, 1500);
+
+    socket.once('connect', () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.once('error', () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(false);
+    });
+
+    socket.connect(port, host);
+  });
+}
+
 // Background Kafka connection and consumer runner
 async function startKafka() {
   const isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
@@ -55,6 +97,14 @@ async function startKafka() {
 
   if (!finalBroker) {
     console.log('Running in cloud/fallback mode (no local Kafka broker connection attempted). Using local memory queues.');
+    return;
+  }
+
+  const reachable = await isKafkaBrokerReachable(finalBroker);
+  if (!reachable) {
+    console.log(`Kafka broker ${finalBroker} is not reachable. Using local memory queues.`);
+    producer = null;
+    consumer = null;
     return;
   }
 
@@ -191,7 +241,85 @@ async function publishEvent(roomId, eventType, payload, senderId) {
   }
 }
 
+async function getOrCreateGoogleUser(googlePayload) {
+  const email = googlePayload.email ? googlePayload.email.toLowerCase() : null;
+  if (!email) {
+    throw new Error('Google account email is required');
+  }
+
+  const existingUser = db.getUserByEmail(email);
+  if (existingUser) {
+    return existingUser;
+  }
+
+  let usernameBase = (email.split('@')[0] || `googleuser${googlePayload.sub}`).replace(/[^a-z0-9._-]/g, '').toLowerCase();
+  if (!usernameBase) {
+    usernameBase = `googleuser${googlePayload.sub.slice(0, 8)}`;
+  }
+
+  let username = usernameBase;
+  let suffix = 1;
+  while (db.getUserByUsername(username)) {
+    username = `${usernameBase}${suffix}`;
+    suffix += 1;
+  }
+
+  const nickname = (googlePayload.name || googlePayload.given_name || usernameBase).trim();
+  const passwordHash = await bcrypt.hash(`google-oauth:${googlePayload.sub}`, 10);
+
+  return await new Promise((resolve, reject) => {
+    db.createUser('usr_' + Math.random().toString(36).substring(2, 10), username, passwordHash, nickname, (err, newUser) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      if (googlePayload.picture) {
+        db.updateUser(newUser.id, newUser.nickname, googlePayload.picture, newUser.password_hash, () => {});
+      }
+      resolve(newUser);
+    }, email);
+  });
+}
+
 // Authentication Routes
+
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential is required' });
+  }
+
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return res.status(500).json({ error: 'Google authentication is not configured on the server.' });
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const user = await getOrCreateGoogleUser(payload);
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    logAuditEvent('USER_GOOGLE_LOGIN', user.id, user.username, null, { email: user.email }, req.ip);
+
+    res.json({
+      user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar }
+    });
+  } catch (err) {
+    console.error('Google login error:', err);
+    res.status(401).json({ error: 'Google authentication failed' });
+  }
+});
 
 app.post('/api/auth/register', async (req, res) => {
   const { username, nickname, password } = req.body;

@@ -43,6 +43,11 @@ module.exports = {
     const users = db.getUsers();
     return users.find(u => u.username === username) || null;
   },
+
+  getUserByEmail: (email) => {
+    const users = db.getUsers();
+    return users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase()) || null;
+  },
   
   // Find user by ID
   getUserById: (id) => {
@@ -51,7 +56,7 @@ module.exports = {
   },
 
   // Create user
-  createUser: (userId, username, passwordHash, nickname, callback) => {
+  createUser: (userId, username, passwordHash, nickname, callback, email = null) => {
     const users = db.getUsers();
     if (users.some(u => u.username === username)) {
       return callback(new Error('UNIQUE constraint failed'));
@@ -62,6 +67,7 @@ module.exports = {
       password_hash: passwordHash,
       nickname,
       avatar: null,
+      email: email || null,
       created_at: Date.now()
     };
     users.push(newUser);

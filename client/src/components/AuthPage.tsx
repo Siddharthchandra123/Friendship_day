@@ -3,8 +3,21 @@ import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Lock, User as UserIcon, Smile, Sparkles, AlertCircle } from 'lucide-react';
 
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void;
+          prompt: (options?: any) => void;
+        };
+      };
+    };
+  }
+}
+
 export const AuthPage: React.FC = () => {
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   
   // Form States
@@ -60,6 +73,48 @@ export const AuthPage: React.FC = () => {
     setUsername('');
     setNickname('');
     setPassword('');
+  };
+
+  const handleGoogleLogin = async () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setError('Google sign-in is not configured yet. Add VITE_GOOGLE_CLIENT_ID to your environment.');
+      return;
+    }
+
+    if (!window.google?.accounts?.id) {
+      setError('Google sign-in is still loading. Please try again in a moment.');
+      return;
+    }
+
+    setError(null);
+    setIsLoading(true);
+
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response: { credential?: string }) => {
+        try {
+          if (!response?.credential) {
+            setError('Google sign-in was cancelled.');
+            setIsLoading(false);
+            return;
+          }
+
+          const res = await loginWithGoogle(response.credential);
+          if (!res.success) {
+            setError(res.error || 'Google sign-in failed');
+          }
+        } catch (err) {
+          setError('Something went wrong during Google sign-in.');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      auto_select: false,
+      cancel_on_tap_outside: false
+    });
+
+    window.google.accounts.id.prompt();
   };
 
   return (
@@ -199,6 +254,27 @@ export const AuthPage: React.FC = () => {
             )}
           </button>
         </form>
+
+        <div className="my-6 flex items-center gap-3">
+          <div className="h-px flex-1 bg-white/10" />
+          <span className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Or</span>
+          <div className="h-px flex-1 bg-white/10" />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={isLoading}
+          className="w-full py-3 rounded-2xl border border-white/10 bg-slate-900/40 text-white font-semibold flex items-center justify-center gap-2 transition hover:bg-slate-800/70 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M21.6 12.23c0-.69-.06-1.36-.17-2H12v3.8h5.39a4.6 4.6 0 0 1-2 3.02v2.5h3.24c1.89-1.74 2.97-4.3 2.97-7.32Z" />
+            <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.24-2.5c-.9.6-2.04.96-3.37.96-2.59 0-4.79-1.75-5.58-4.1H3.07v2.56A10 10 0 0 0 12 22Z" />
+            <path fill="#FBBC05" d="M6.42 13.93A6.02 6.02 0 0 1 6.42 10.07V7.51H3.07a10 10 0 0 0 0 12.84l3.35-2.42Z" />
+            <path fill="#EA4335" d="M12 6.04c1.46 0 2.78.5 3.82 1.48l2.86-2.86A9.95 9.95 0 0 0 12 2a10 10 0 0 0-8.93 5.51l3.35 2.42C7.21 7.79 9.41 6.04 12 6.04Z" />
+          </svg>
+          <span>Continue with Google</span>
+        </button>
 
         {/* Footer toggle */}
         <div className="mt-8 text-center text-sm text-slate-500">
