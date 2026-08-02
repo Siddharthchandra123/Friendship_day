@@ -670,8 +670,31 @@ pendingCandidatesRef.current = [];
     });
 
     return () => {
-    socket.removeAllListeners();
-    cleanupMediaAndRTC();
+    socket.off("joined");
+    socket.off("peer-joined");
+    socket.off("peer-left");
+    socket.off("room-full");
+    socket.off("webrtc-offer");
+    socket.off("webrtc-answer");
+    socket.off("webrtc-candidate");
+    socket.off("chat");
+    socket.off("typing");
+    socket.off("reaction");
+    socket.off("draw-stroke");
+    socket.off("draw-clear");
+    socket.off("draw-undo");
+    socket.off("memory-add");
+    socket.off("memory-delete");
+    socket.off("timeline-add");
+    socket.off("timeline-delete");
+    socket.off("select-game");
+    socket.off("game-action");
+    socket.off("quiz-action");
+    socket.off("quiz-reset");
+    socket.off("meter-action");
+    socket.off("meter-reset");
+    socket.off("surprise");
+    socket.off("activity-feed");
 };
   }, []);
 
@@ -749,7 +772,7 @@ pendingCandidatesRef.current = [];
     }
     return result;
   };
-const createRoom = (nickname: string): string => {
+const createRoom = async (nickname: string): Promise<string> => {
     const newRoomId = generateRandomRoomId();
 
     setMyNickname(nickname);
@@ -758,16 +781,21 @@ const createRoom = (nickname: string): string => {
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
 
-    initializeMedia().then(() => {
-        socket.emit("join-room", {
-            roomId: newRoomId,
-            nickname,
-        });
+    if (!socket.connected) {
+        socket.connect();
+    }
+
+    socket.emit("join-room", {
+        roomId: newRoomId,
+        nickname,
     });
+
+    initializeMedia().catch(console.error);
 
     return newRoomId;
 };
-  const joinRoom = (id: string, nickname: string) => {
+
+const joinRoom = (id: string, nickname: string) => {
     const upperId = id.trim().toUpperCase();
 
     setMyNickname(nickname);
@@ -776,16 +804,16 @@ const createRoom = (nickname: string): string => {
     setRoomId(upperId);
     roomIdRef.current = upperId;
 
-    initializeMedia().then(() => {
-        if (!socket.connected) {
-            socket.connect();
-        }
+    if (!socket.connected) {
+        socket.connect();
+    }
 
-        socket.emit("join-room", {
-            roomId: upperId,
-            nickname,
-        });
+    socket.emit("join-room", {
+        roomId: upperId,
+        nickname,
     });
+
+    initializeMedia().catch(console.error);
 };
 
   const leaveRoom = () => {
