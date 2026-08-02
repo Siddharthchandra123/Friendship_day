@@ -4,6 +4,7 @@ import { Heart, Play, Volume2, VolumeX, Sparkles, Send, X, User as UserIcon, Pal
 import { useWebRTC } from '../context/WebRTCContext';
 import { useAuth } from '../context/AuthContext';
 import { ambientSynth } from '../utils/WebAudioSynth';
+import { useMedia } from "../context/MediaContext";
 
 const quotes = [
   "Distance means nothing when friendship means everything. ❤️",
@@ -19,6 +20,12 @@ interface LandingPageProps {
   onGoToProfile: () => void;
 }
 
+
+const { initializeMedia } = useMedia();
+
+useEffect(() => {
+    initializeMedia().catch(console.error);
+}, []);
 export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
   const { createRoom, joinRoom, roomFullError } = useWebRTC();
   const { user } = useAuth();
@@ -26,6 +33,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+
 
   // Check URL for invite code & support auto-rejoining
   useEffect(() => {
@@ -425,3 +433,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGoToProfile }) => {
   );
 };
 export default LandingPage;
+
+
+

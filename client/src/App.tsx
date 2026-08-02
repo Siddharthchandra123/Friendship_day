@@ -7,6 +7,8 @@ import ProfilePage from "./components/ProfilePage";
 import { CustomCursor } from './components/CustomCursor';
 import { AuthPage } from './components/AuthPage';
 import { Heart } from 'lucide-react';
+import { MediaProvider } from "./context/MediaContext";
+import { SocketProvider } from "./context/SocketContext";
 
 const FriendVerseApp: React.FC = () => {
   const { roomId, isConnecting } = useWebRTC();
@@ -75,13 +77,21 @@ const FriendVerseApp: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <CustomCursor />
-      <WebRTCProvider>
-        <FriendVerseApp />
-      </WebRTCProvider>
-    </AuthProvider>
+<AuthProvider>
+    <SocketProvider>
+        <MediaProvider>
+            <WebRTCProvider>
+                <CustomCursor />
+                <FriendVerseApp />
+            </WebRTCProvider>
+        </MediaProvider>
+    </SocketProvider>
+</AuthProvider>
   );
 };
 
 export default App;
+
+
+
+

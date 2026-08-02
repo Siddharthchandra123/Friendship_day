@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { useSocket } from "./SocketContext.tsx";
 import confetti from 'canvas-confetti';
-
+import { useMedia } from "./MediaContext";
 // Types for components
 export interface Message {
   id: string;
@@ -151,12 +151,14 @@ interface WebRTCContextType {
 }
 
 const WebRTCContext = createContext<WebRTCContextType | undefined>(undefined);
-
-const SIGNALING_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? 'http://localhost:5000'
-  : 'https://friendverse-signaling.onrender.com'; // Dedicated backend server URL
-
 export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+
+  const {
+        initializeMedia,
+
+    } = useMedia();
+
+  
   const [roomId, setRoomId] = useState('');
   const roomIdRef = useRef('');
   const [isConnected, setIsConnected] = useState(false);
@@ -242,7 +244,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // WebSockets / WebRTC References
-  const socketRef = useRef<Socket | null>(null);
+  const socket = useSocket();
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const activePeerIdRef = useRef<string | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -271,13 +273,13 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     peerConnection.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        socketRef.current.emit('webrtc-candidate', {
-          roomId: roomIdRef.current,
-          targetPeerId: peerId,
-          candidate: event.candidate
-        });
-      }
+      if (event.candidate && socket.connected) {
+    socket.emit("webrtc-candidate", {
+        roomId: roomIdRef.current,
+        targetPeerId: peerId,
+        candidate: event.candidate
+    });
+}
     };
 
     peerConnection.ontrack = (event) => {
@@ -316,7 +318,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const connectToPeer = async (peerId: string) => {
-    if (!peerId || peerId === socketRef.current?.id) {
+    if (!peerId || peerId === socket.id) {
       return;
     }
 
@@ -325,7 +327,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
-      socketRef.current?.emit('webrtc-offer', {
+      socket.emit('webrtc-offer', {
         roomId: roomIdRef.current,
         targetPeerId: peerId,
         offer
@@ -344,7 +346,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-      socketRef.current?.emit('webrtc-answer', {
+      socket.emit('webrtc-answer', {
         roomId: roomIdRef.current,
         targetPeerId: peerId,
         answer
@@ -379,15 +381,10 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (err) {
       console.error('Error adding incoming ICE candidate:', err);
     }
-  };
-
+  };   
   // Initialize socket connection on component mount
   useEffect(() => {
-    socketRef.current = io(SIGNALING_URL, {
-      autoConnect: false,
-    });
 
-    const socket = socketRef.current;
 
     socket.on('joined', ({ roomId: joinedRoomId, otherUsers, history }) => {
       console.log(`Joined room ${joinedRoomId}. Other users present:`, otherUsers);
@@ -440,7 +437,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnecting(true);
       setPeerDisconnected(false);
       setPeerNicknames(prev => ({ ...prev, [peerId]: name }));
-      if (socketRef.current?.id && peerId !== socketRef.current.id) {
+      if (socket.id && peerId !== socket.id) {
         setTimeout(() => {
           void connectToPeer(peerId);
         }, 300);
@@ -665,7 +662,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     return () => {
-      socket.disconnect();
       cleanupMediaAndRTC();
     };
   }, []);
@@ -780,41 +776,41 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
     if (type === 'chat') {
-      socketRef.current?.emit('chat', { roomId: roomIdRef.current, message: payload });
+      socket.emit('chat', { roomId: roomIdRef.current, message: payload });
     } else if (type === 'memory-add') {
-      socketRef.current?.emit('memory-add', { roomId: roomIdRef.current, item: payload.item });
+      socket.emit('memory-add', { roomId: roomIdRef.current, item: payload.item });
     } else if (type === 'memory-delete') {
-      socketRef.current?.emit('memory-delete', { roomId: roomIdRef.current, id: payload.id });
+      socket.emit('memory-delete', { roomId: roomIdRef.current, id: payload.id });
     } else if (type === 'timeline-add') {
-      socketRef.current?.emit('timeline-add', { roomId: roomIdRef.current, event: payload.event });
+      socket.emit('timeline-add', { roomId: roomIdRef.current, event: payload.event });
     } else if (type === 'timeline-delete') {
-      socketRef.current?.emit('timeline-delete', { roomId: roomIdRef.current, id: payload.id });
+      socket.emit('timeline-delete', { roomId: roomIdRef.current, id: payload.id });
     } else if (type === 'select-game') {
-      socketRef.current?.emit('select-game', { roomId: roomIdRef.current, game: payload.game });
+      socket.emit('select-game', { roomId: roomIdRef.current, game: payload.game });
     } else if (type === 'game-action') {
-      socketRef.current?.emit('game-action', { roomId: roomIdRef.current, payload });
+      socket.emit('game-action', { roomId: roomIdRef.current, payload });
     } else if (type === 'quiz-action') {
-      socketRef.current?.emit('quiz-action', { roomId: roomIdRef.current, payload });
+      socket.emit('quiz-action', { roomId: roomIdRef.current, payload });
     } else if (type === 'quiz-reset') {
-      socketRef.current?.emit('quiz-reset', { roomId: roomIdRef.current });
+      socket.emit('quiz-reset', { roomId: roomIdRef.current });
     } else if (type === 'meter-action') {
-      socketRef.current?.emit('meter-action', { roomId: roomIdRef.current, payload });
+      socket.emit('meter-action', { roomId: roomIdRef.current, payload });
     } else if (type === 'meter-reset') {
-      socketRef.current?.emit('meter-reset', { roomId: roomIdRef.current });
+      socket.emit('meter-reset', { roomId: roomIdRef.current });
     } else if (type === 'surprise') {
-      socketRef.current?.emit('surprise', { roomId: roomIdRef.current, surpriseType: payload.surpriseType, message: payload.message });
+      socket.emit('surprise', { roomId: roomIdRef.current, surpriseType: payload.surpriseType, message: payload.message });
     } else if (type === 'typing') {
-      socketRef.current?.emit('typing', { roomId: roomIdRef.current, isTyping: payload.isTyping });
+      socket.emit('typing', { roomId: roomIdRef.current, isTyping: payload.isTyping });
     } else if (type === 'reaction') {
-      socketRef.current?.emit('reaction', { roomId: roomIdRef.current, emoji: payload.emoji });
+      socket.emit('reaction', { roomId: roomIdRef.current, emoji: payload.emoji });
     } else if (type === 'draw-stroke') {
-      socketRef.current?.emit('draw-stroke', { roomId: roomIdRef.current, stroke: payload.stroke });
+      socket.emit('draw-stroke', { roomId: roomIdRef.current, stroke: payload.stroke });
     } else if (type === 'draw-clear') {
-      socketRef.current?.emit('draw-clear', { roomId: roomIdRef.current });
+      socket.emit('draw-clear', { roomId: roomIdRef.current });
     } else if (type === 'draw-undo') {
-      socketRef.current?.emit('draw-undo', { roomId: roomIdRef.current, remainingStrokes: payload.remainingStrokes });
+      socket.emit('draw-undo', { roomId: roomIdRef.current, remainingStrokes: payload.remainingStrokes });
     } else {
-      socketRef.current?.emit(type, { roomId: roomIdRef.current, ...payload });
+      socket.emit(type, { roomId: roomIdRef.current, ...payload });
     }
   };
 
@@ -860,12 +856,8 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
 
-    getUserMedia().then(() => {
-      if (!socketRef.current?.connected) {
-        socketRef.current?.connect();
-      }
-
-      socketRef.current?.emit("join-room", {
+    initializeMedia().then(() => {
+      socket.emit("join-room", {
         roomId: newRoomId,
         nickname,
       });
@@ -882,12 +874,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   setRoomId(upperId);
   roomIdRef.current = upperId;
 
-  getUserMedia().then(() => {
-    if (!socketRef.current?.connected) {
-      socketRef.current?.connect();
+  initializeMedia().then(() => {
+    if (!socket.connected) {
+      socket.connect();
     }
 
-    socketRef.current?.emit("join-room", {
+    socket.emit("join-room", {
       roomId: upperId,
       nickname,
     });
@@ -895,11 +887,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
   const leaveRoom = () => {
-    socketRef.current?.emit("leave-room", {
+    socket.emit("leave-room", {
       roomId: roomIdRef.current,
     });
 
-    socketRef.current?.disconnect();
+    socket.disconnect();
 
     cleanupMediaAndRTC();
 
@@ -1375,3 +1367,6 @@ export const useWebRTC = () => {
   }
   return context;
 };
+
+
+

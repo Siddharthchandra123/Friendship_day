@@ -236,3 +236,6 @@ export const FriendshipQuiz: React.FC = () => {
   );
 };
 export default FriendshipQuiz;
+
+
+

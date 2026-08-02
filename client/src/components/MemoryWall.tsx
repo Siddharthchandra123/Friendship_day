@@ -445,3 +445,6 @@ export const MemoryWall: React.FC = () => {
   );
 };
 export default MemoryWall;
+
+
+
