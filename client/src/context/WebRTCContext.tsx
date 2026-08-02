@@ -772,7 +772,7 @@ pendingCandidatesRef.current = [];
     }
     return result;
   };
-const createRoom = async (nickname: string): Promise<string> => {
+const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
 
     setMyNickname(nickname);
@@ -790,7 +790,12 @@ const createRoom = async (nickname: string): Promise<string> => {
         nickname,
     });
 
-    initializeMedia().catch(console.error);
+    initializeMedia()
+        .then((stream) => {
+            localStreamRef.current = stream;
+            setLocalStream(stream);
+        })
+        .catch(console.error);
 
     return newRoomId;
 };
@@ -813,8 +818,14 @@ const joinRoom = (id: string, nickname: string) => {
         nickname,
     });
 
-    initializeMedia().catch(console.error);
+    initializeMedia()
+        .then((stream) => {
+            localStreamRef.current = stream;
+            setLocalStream(stream);
+        })
+        .catch(console.error);
 };
+
 
   const leaveRoom = () => {
     socket.emit("leave-room", {
