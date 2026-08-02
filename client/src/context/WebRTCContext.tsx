@@ -65,6 +65,15 @@ export interface MeterState {
   submittedPeer: boolean;
 }
 
+export interface ActivityFeedItem {
+  id: string;
+  type: 'chat' | 'reaction' | 'memory' | 'timeline' | 'presence' | 'system';
+  title: string;
+  message: string;
+  actorName?: string;
+  timestamp: string;
+}
+
 interface WebRTCContextType {
   roomId: string;
   isConnected: boolean;
@@ -138,6 +147,7 @@ interface WebRTCContextType {
   // Surprise Trigger
   triggerSurprise: (type: 'confetti' | 'hearts' | 'compliment' | 'joke') => void;
   surpriseNotification: { message: string; type: string } | null;
+  activityFeed: ActivityFeedItem[];
 }
 
 const WebRTCContext = createContext<WebRTCContextType | undefined>(undefined);
@@ -222,6 +232,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Surprise popup notification
   const [surpriseNotification, setSurpriseNotification] = useState<{ message: string; type: string } | null>(null);
+  const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
+
+  const addActivityFeedItem = (item: ActivityFeedItem) => {
+    setActivityFeed(prev => [
+      { ...item, timestamp: item.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+      ...prev.slice(0, 11)
+    ]);
+  };
 
   // WebSockets / WebRTC References
   const socketRef = useRef<Socket | null>(null);
@@ -383,6 +401,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         names[peer.id] = peer.nickname;
       });
       setPeerNicknames(prev => ({ ...prev, ...names }));
+      addActivityFeedItem({
+        id: `presence-${Date.now()}`,
+        type: 'presence',
+        title: 'Room joined',
+        message: `You are now in the room with ${otherUsers.length > 0 ? otherUsers.length : 'your bestie'}.`,
+        actorName: myNicknameRef.current || 'You',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
 
       // Load Kafka room history logs
       if (history) {
@@ -390,6 +416,15 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (history.memories) setMemories(history.memories.map((m: any) => ({ ...m, author: m.author || 'peer' })));
         if (history.timeline) setTimelineEvents(history.timeline);
       }
+
+      addActivityFeedItem({
+        id: `join-${joinedRoomId}`,
+        type: 'presence',
+        title: 'You joined',
+        message: `You entered room ${joinedRoomId}`,
+        actorName: myNicknameRef.current || 'You',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
 
       if (otherUsers.length > 0) {
         setTimeout(() => {
@@ -411,7 +446,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }, 300);
       }
 
-      // Add system message
+      addActivityFeedItem({
+        id: `presence-${peerId}`,
+        type: 'presence',
+        title: 'New presence',
+        message: `${name} joined the room and is ready to vibe.`,
+        actorName: name,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
       setChatMessages(prev => [...prev, {
         id: `sys-${Date.now()}-${Math.random()}`,
         sender: 'system',
@@ -445,6 +487,17 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('Room is full');
       setRoomFullError(true);
       setIsConnecting(false);
+    });
+
+    socket.on('activity-feed', (activity: any) => {
+      addActivityFeedItem({
+        id: activity.id || `${activity.type}-${Date.now()}`,
+        type: activity.type || 'system',
+        title: activity.title || 'Room update',
+        message: activity.message || 'A new room interaction happened',
+        actorName: activity.actorName,
+        timestamp: activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
     });
 
     socket.on('webrtc-offer', async ({ peerId, offer }) => {
@@ -936,6 +989,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     setChatMessages(prev => [...prev, newMessage]);
+    addActivityFeedItem({
+      id: `chat-${newMessage.id}`,
+      type: 'chat',
+      title: 'New message',
+      message: text,
+      actorName: myNicknameRef.current || 'You',
+      timestamp: newMessage.timestamp
+    });
     sendDataChannelMsg('chat', newMessage);
   };
 
@@ -945,6 +1006,14 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // EMOJI REACTION SYNC
   const sendEmojiReaction = (emoji: string) => {
+    addActivityFeedItem({
+      id: `reaction-${Date.now()}`,
+      type: 'reaction',
+      title: 'Reaction sent',
+      message: `${myNicknameRef.current || 'You'} reacted with ${emoji}`,
+      actorName: myNicknameRef.current || 'You',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    });
     sendDataChannelMsg('reaction', { emoji });
     triggerFloatingReaction(emoji);
   };
@@ -959,6 +1028,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     reactionEl.style.bottom = '0px';
     reactionEl.style.left = `${Math.random() * 80 + 10}%`;
     reactionEl.style.fontSize = '3rem';
+    reactionEl.style.filter = 'drop-shadow(0 0 12px rgba(255, 255, 255, 0.35))';
     reactionEl.style.pointerEvents = 'none';
     reactionEl.style.zIndex = '9999';
     reactionEl.style.opacity = '1';
@@ -1199,6 +1269,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStream,
         remoteStream: Object.values(remoteStreams)[0] || null,
         remoteStreams,
+        activityFeed,
         isAudioMuted,
         isVideoMuted,
         isScreenSharing,

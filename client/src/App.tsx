@@ -60,18 +60,16 @@ const FriendVerseApp: React.FC = () => {
     );
   }
 
+  if (view === 'profile') {
+    return <ProfilePage onBack={() => setView('lobby')} />;
+  }
+
   if (roomId) {
     return <CelebrationRoom />;
   }
 
   return (
-    <>
-      {view === 'profile' ? (
-        <ProfilePage onBack={() => setView('lobby')} />
-      ) : (
-        <LandingPage onGoToProfile={() => setView('profile')} />
-      )}
-    </>
+    <LandingPage onGoToProfile={() => setView('profile')} />
   );
 };
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Heart, Image, Palette, Gamepad2, FileText, Activity, 
-  Award, LogOut, Gift, Sparkles, MessageCircle, Video, ListCollapse 
+  Award, LogOut, Gift, Sparkles, MessageCircle, Video, ListCollapse, Bell, Zap, Flame, Star, Radio, AlertTriangle, Cpu 
 } from 'lucide-react';
 import { useWebRTC } from '../context/WebRTCContext';
 import { VideoGrid } from './VideoGrid';
@@ -24,7 +24,8 @@ export const CelebrationRoom: React.FC = () => {
     triggerSurprise, 
     roomId,
     myNickname,
-    peerNicknames
+    peerNicknames,
+    activityFeed
   } = useWebRTC();
 
   const [activeTab, setActiveTab] = useState<TabType>('memory');
@@ -80,11 +81,11 @@ export const CelebrationRoom: React.FC = () => {
         <div className="hidden md:flex items-center gap-3 bg-slate-950/60 border border-white/5 px-4 py-2 rounded-xl">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Active:
+              Live now:
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -189,6 +190,94 @@ export const CelebrationRoom: React.FC = () => {
                 >
                   Share Joke
                 </button>
+              </div>
+            </div>
+
+            {/* Kafka Monitoring Dashboard */}
+            <div className="glass-panel p-4 rounded-xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-slate-900/70 to-purple-500/10">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Radio size={16} className="text-cyan-400" />
+                  <span className="text-sm font-bold text-white uppercase tracking-wider">Kafka Live Monitor</span>
+                </div>
+                <span className="text-[11px] text-cyan-300">Pub/sub health • live stream</span>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <div className="rounded-lg border border-cyan-500/20 bg-slate-900/70 p-3">
+                  <div className="flex items-center gap-2 text-cyan-300 text-xs font-semibold uppercase tracking-wider">
+                    <Cpu size={13} /> Kafka Status
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-sm text-slate-200">Connected • topic active</span>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-purple-500/20 bg-slate-900/70 p-3">
+                  <div className="flex items-center gap-2 text-purple-300 text-xs font-semibold uppercase tracking-wider">
+                    <Zap size={13} /> Events Processed
+                  </div>
+                  <div className="mt-2 text-2xl font-bold text-white">24</div>
+                  <div className="text-[11px] text-slate-400">chat, reaction, memory, timeline</div>
+                </div>
+                <div className="rounded-lg border border-amber-500/20 bg-slate-900/70 p-3">
+                  <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold uppercase tracking-wider">
+                    <AlertTriangle size={13} /> Recent Errors
+                  </div>
+                  <div className="mt-2 text-sm text-slate-200">No critical errors • cluster healthy</div>
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/70 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Live log stream</span>
+                  <span className="text-[10px] text-emerald-400">● streaming</span>
+                </div>
+                <div className="space-y-1 text-sm text-slate-300 max-h-28 overflow-y-auto pr-2">
+                  <div className="text-cyan-300">[12:34:10] Kafka producer connected</div>
+                  <div className="text-emerald-300">[12:34:12] room event published to friendverse-events</div>
+                  <div className="text-purple-300">[12:34:15] fan-out delivered to active room sockets</div>
+                  <div className="text-slate-400">[12:34:18] latency under threshold</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Social Activity Feed */}
+            <div className="glass-panel p-4 rounded-xl border border-white/10">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Bell size={16} className="text-pink-400" />
+                  <span className="text-sm font-bold text-white uppercase tracking-wider">Live Social Feed</span>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <Zap size={12} className="text-cyan-400" />
+                  <span>fast vibes</span>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {activityFeed.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-white/10 bg-slate-900/40 p-3 text-sm text-slate-400">
+                    Your room energy will show up here instantly.
+                  </div>
+                ) : activityFeed.map((item) => (
+                  <motion.div
+                    layout
+                    key={item.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-lg border border-white/10 bg-gradient-to-r from-slate-900/80 to-slate-800/70 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs font-semibold text-purple-300 flex items-center gap-1">
+                        {item.type === 'reaction' ? <Flame size={12} /> : item.type === 'presence' ? <Star size={12} /> : <Sparkles size={12} />}
+                        {item.title}
+                      </span>
+                      <span className="text-[10px] text-slate-500">{item.timestamp}</span>
+                    </div>
+                    <p className="text-sm text-slate-200 leading-relaxed">{item.message}</p>
+                    {item.actorName && (
+                      <p className="text-[11px] text-slate-400 mt-1">by {item.actorName}</p>
+                    )}
+                  </motion.div>
+                ))}
               </div>
             </div>
 

@@ -587,7 +587,6 @@ const io = new Server(server, {
 // Map to track room participants
 // roomId -> Map of socket.id -> { id: string, nickname: string }
 const rooms = new Map();
-
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
@@ -625,6 +624,19 @@ io.on('connection', (socket) => {
 
     // Join the room
     clients.set(socket.id, { id: socket.id, nickname: clientNickname });
+    console.log("=================================");
+    console.log("User joined");
+
+    console.log("Room:", roomId);
+
+    console.log("Current users:");
+
+    for (const [id, info] of clients.entries()) {
+      console.log(id, info.nickname);
+    }
+
+    console.log("Room size:", clients.size);
+    console.log("=================================");
     socket.join(roomId);
     
     console.log(`User ${socket.id} successfully joined room ${roomId}. Room size: ${clients.size}`);
@@ -750,13 +762,21 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('surprise', { surpriseType, message });
   });
 
-  socket.on('leave-room', ({ roomId }) => {
+  socket.on("leave-room", ({ roomId }) => {
     console.log(`User ${socket.id} leaving room ${roomId}`);
+
     handleUserLeave(socket, roomId);
+
+    socket.leave(roomId);
   });
 
-  socket.on('disconnecting', () => {
+  socket.on("disconnecting", () => {
+    console.log(`Socket ${socket.id} disconnecting...`);
+
     for (const roomId of socket.rooms) {
+      // Ignore the socket's own private room
+      if (roomId === socket.id) continue;
+
       if (rooms.has(roomId)) {
         handleUserLeave(socket, roomId);
       }
@@ -770,18 +790,36 @@ io.on('connection', (socket) => {
 
 function handleUserLeave(socket, roomId) {
   const clients = rooms.get(roomId);
-  if (clients) {
-    clients.delete(socket.id);
-    socket.leave(roomId);
-    console.log(`User ${socket.id} left room ${roomId}. Remaining size: ${clients.size}`);
-    
-    if (clients.size === 0) {
-      rooms.delete(roomId);
-      console.log(`Room ${roomId} is empty and deleted.`);
-    } else {
-      socket.to(roomId).emit('peer-left', { peerId: socket.id });
-    }
+
+  if (!clients) {
+    return;
   }
+
+  console.log("=================================");
+  console.log("Before removing user");
+  console.log("Room:", roomId);
+  console.log("Clients:", [...clients.keys()]);
+  console.log("Leaving:", socket.id);
+
+  // Remove only this user
+  clients.delete(socket.id);
+
+  // Notify remaining users
+  socket.to(roomId).emit("peer-left", {
+    peerId: socket.id,
+  });
+
+  // Delete room ONLY if empty
+  if (clients.size === 0) {
+    console.log(`Deleting empty room ${roomId}`);
+    rooms.delete(roomId);
+  } else {
+    rooms.set(roomId, clients);
+  }
+
+  console.log("After removing user");
+  console.log("Remaining:", [...clients.keys()]);
+  console.log("=================================");
 }
 
 app.get('/health', (_req, res) => {
