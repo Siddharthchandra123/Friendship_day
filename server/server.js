@@ -832,16 +832,8 @@ app.get('/health', (_req, res) => {
 });
 
 app.get("/api/posts", (req, res) => {
-  res.json([
-    {
-      id: 1,
-      author: "Siddharth",
-      content: "Hello FriendVerse!",
-      createdAt: new Date().toISOString()
-    }
-  ]);
+  res.json([]);
 });
-
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Production server listening on port ${PORT}`);
