@@ -358,18 +358,33 @@ pendingCandidatesRef.current = [];
     }
   };
 
-  const handleIncomingAnswer = async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+  const handleIncomingAnswer = async ({
+    answer,
+}: {
+    answer: RTCSessionDescriptionInit;
+}) => {
     const peerConnection = peerConnectionRef.current;
+
     if (!peerConnection) {
-      return;
+        return;
+    }
+
+    if (peerConnection.signalingState !== "have-local-offer") {
+        console.warn(
+            "Ignoring answer. Signaling state:",
+            peerConnection.signalingState
+        );
+        return;
     }
 
     try {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(answer)
+        );
     } catch (err) {
-      console.error('Error handling WebRTC answer:', err);
+        console.error("Error handling WebRTC answer:", err);
     }
-  };
+};
 
   const handleIncomingCandidate = async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
     const peerConnection = peerConnectionRef.current;
@@ -431,11 +446,9 @@ pendingCandidatesRef.current = [];
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      if (otherUsers.length > 0) {
-        setTimeout(() => {
-          void connectToPeer(otherUsers[0].id);
-        }, 300);
-      }
+      // Existing users will initiate the WebRTC connection.
+// Do not create an offer from the newly joined peer.
+console.log("Waiting for existing peer to initiate WebRTC");
     });
 
     socket.on('peer-joined', async ({ peerId, nickname }) => {
@@ -785,15 +798,15 @@ const createRoom = (nickname: string): string => {
         socket.connect();
     }
 
-    socket.emit("join-room", {
-        roomId: newRoomId,
-        nickname,
-    });
-
     initializeMedia()
         .then((stream) => {
             localStreamRef.current = stream;
             setLocalStream(stream);
+
+            socket.emit("join-room", {
+                roomId: newRoomId,
+                nickname,
+            });
         })
         .catch(console.error);
 
@@ -813,20 +826,18 @@ const joinRoom = (id: string, nickname: string) => {
         socket.connect();
     }
 
-    socket.emit("join-room", {
-        roomId: upperId,
-        nickname,
-    });
-
     initializeMedia()
         .then((stream) => {
             localStreamRef.current = stream;
             setLocalStream(stream);
+
+            socket.emit("join-room", {
+                roomId: upperId,
+                nickname,
+            });
         })
         .catch(console.error);
 };
-
-
   const leaveRoom = () => {
     socket.emit("leave-room", {
       roomId: roomIdRef.current,
