@@ -200,16 +200,6 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     { id: '4', year: '2026', text: 'Still best friends forever! ❤️' }
   ]);
 
-  const memoriesRef = useRef(memories);
-  useEffect(() => {
-    memoriesRef.current = memories;
-  }, [memories]);
-
-  const timelineEventsRef = useRef(timelineEvents);
-  useEffect(() => {
-    timelineEventsRef.current = timelineEvents;
-  }, [timelineEvents]);
-
   // Games
   const [currentMiniGame, setCurrentMiniGame] = useState<'none' | 'tictactoe' | 'rps' | 'memory' | 'emojiguess'>('none');
   const [gameState, setGameState] = useState<GameState>({});
@@ -269,7 +259,13 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: ['stun:stun.l.google.com:1930'] }]
+      iceServers: [
+    {
+        urls: [
+            "stun:stun.l.google.com:19302"
+        ]
+    }
+]
     });
 
     peerConnection.onicecandidate = (event) => {
@@ -344,6 +340,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      for (const candidate of pendingCandidatesRef.current) {
+    await peerConnection.addIceCandidate(
+        new RTCIceCandidate(candidate)
+    );
+}
+pendingCandidatesRef.current = [];
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('webrtc-answer', {
@@ -378,6 +380,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      for (const candidate of pendingCandidatesRef.current) {
+    await peerConnection.addIceCandidate(
+        new RTCIceCandidate(candidate)
+    );
+}
+pendingCandidatesRef.current = [];
     } catch (err) {
       console.error('Error adding incoming ICE candidate:', err);
     }
@@ -662,8 +670,9 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     return () => {
-      cleanupMediaAndRTC();
-    };
+    socket.removeAllListeners();
+    cleanupMediaAndRTC();
+};
   }, []);
 
   const createFallbackMediaStream = (): MediaStream => {
@@ -717,61 +726,12 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // Request Camera & Microphone access
-  const getUserMedia = async (): Promise<MediaStream> => {
-    if (localStreamRef.current) return localStreamRef.current;
-
-    const videoConstraints = {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      facingMode: 'user'
-    };
-
-    const audioConstraints = {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false
-    };
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: audioConstraints
-      });
-      setLocalStream(stream);
-      localStreamRef.current = stream;
-      return stream;
-    } catch (primaryError) {
-      try {
-        const [audioOnlyResult, videoOnlyResult] = await Promise.allSettled([
-          navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints }),
-          navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false })
-        ]);
-
-        const combinedTracks: MediaStreamTrack[] = [];
-        if (audioOnlyResult.status === 'fulfilled') {
-          combinedTracks.push(...audioOnlyResult.value.getAudioTracks());
-        }
-        if (videoOnlyResult.status === 'fulfilled') {
-          combinedTracks.push(...videoOnlyResult.value.getVideoTracks());
-        }
-
-        if (combinedTracks.length > 0) {
-          const recoveredStream = new MediaStream(combinedTracks);
-          setLocalStream(recoveredStream);
-          localStreamRef.current = recoveredStream;
-          return recoveredStream;
-        }
-      } catch (secondaryError) {
-        console.warn('Camera/microphone fallback recovery failed:', secondaryError);
-      }
-
-      console.warn('Camera/microphone access failed. Using a placeholder stream instead:', primaryError);
-      const fallbackStream = createFallbackMediaStream();
-      setLocalStream(fallbackStream);
-      localStreamRef.current = fallbackStream;
-      return fallbackStream;
-    }
-  };
+  initializeMedia().then(() => {
+    socket.emit("join-room", {
+        roomId: newRoomId,
+        nickname,
+    });
+});
 
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
