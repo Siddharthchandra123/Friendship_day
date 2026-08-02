@@ -351,7 +351,7 @@ async function getOrCreateGoogleUser(googlePayload) {
     throw new Error('Google account email is required');
   }
 
-  const existingUser = db.users.getByEmail(email);
+  const existingUser = db.getUserByEmail(email);
   if (existingUser) {
     return existingUser;
   }
@@ -363,7 +363,7 @@ async function getOrCreateGoogleUser(googlePayload) {
 
   let username = usernameBase;
   let suffix = 1;
-  while (db.users.getByUsername(username)) {
+  while (db.getUserByUsername(username)) {
     username = `${usernameBase}${suffix}`;
     suffix += 1;
   }
@@ -372,13 +372,13 @@ async function getOrCreateGoogleUser(googlePayload) {
   const passwordHash = await bcrypt.hash(`google-oauth:${googlePayload.sub}`, 10);
 
   return await new Promise((resolve, reject) => {
-    db.users.create('usr_' + Math.random().toString(36).substring(2, 10), username, passwordHash, nickname, (err, newUser) => {
+    db.createUser('usr_' + Math.random().toString(36).substring(2, 10), username, passwordHash, nickname, (err, newUser) => {
       if (err) {
         reject(err);
         return;
       }
       if (googlePayload.picture) {
-        db.users.update(newUser.id, newUser.nickname, googlePayload.picture, newUser.password_hash, () => {});
+        db.updateUser(newUser.id, newUser.nickname, googlePayload.picture, newUser.password_hash, () => {});
       }
       resolve(newUser);
     }, email);

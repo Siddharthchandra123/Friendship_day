@@ -45,7 +45,7 @@ const register = async ({
 
   };
 
-  db.users.create(user);
+  db.createUser(user);
 
   const token =
     generateToken(user);
@@ -159,7 +159,7 @@ const updateProfile = async (
 
   }
 
-  db.users.update(user);
+  db.updateUser(user);
 
   return toUserDTO(user);
 
@@ -201,7 +201,7 @@ const googleLogin = ({
 
     };
 
-    db.users.create(user);
+    db.createUser(user);
 
   }
 
