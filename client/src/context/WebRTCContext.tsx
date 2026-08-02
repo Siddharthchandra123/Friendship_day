@@ -852,31 +852,74 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
+
     setMyNickname(nickname);
     setRoomFullError(false);
+
+    // Keep context in sync immediately
+    setRoomId(newRoomId);
+    roomIdRef.current = newRoomId;
+
     getUserMedia().then(() => {
-      socketRef.current?.connect();
-      socketRef.current?.emit('join-room', { roomId: newRoomId, nickname });
+      if (!socketRef.current?.connected) {
+        socketRef.current?.connect();
+      }
+
+      socketRef.current?.emit("join-room", {
+        roomId: newRoomId,
+        nickname,
+      });
     });
+
     return newRoomId;
   };
-
   const joinRoom = (id: string, nickname: string) => {
-    const upperId = id.trim().toUpperCase();
-    setMyNickname(nickname);
-    setRoomFullError(false);
-    getUserMedia().then(() => {
+  const upperId = id.trim().toUpperCase();
+
+  setMyNickname(nickname);
+  setRoomFullError(false);
+
+  setRoomId(upperId);
+  roomIdRef.current = upperId;
+
+  getUserMedia().then(() => {
+    if (!socketRef.current?.connected) {
       socketRef.current?.connect();
-      socketRef.current?.emit('join-room', { roomId: upperId, nickname });
+    }
+
+    socketRef.current?.emit("join-room", {
+      roomId: upperId,
+      nickname,
     });
-  };
+  });
+};
 
   const leaveRoom = () => {
-    socketRef.current?.emit('leave-room', { roomId: roomIdRef.current });
-    socketRef.current?.disconnect();
-    cleanupMediaAndRTC();
-  };
+    socketRef.current?.emit("leave-room", {
+      roomId: roomIdRef.current,
+    });
 
+    socketRef.current?.disconnect();
+
+    cleanupMediaAndRTC();
+
+    // Reset all room state
+    setRoomId("");
+    roomIdRef.current = "";
+
+    setPeerId(null);
+    setPeerNicknames({});
+    setRemoteStreams({});
+    setIsConnected(false);
+    setIsConnecting(false);
+
+    // Prevent auto reconnect
+    localStorage.removeItem("lastRoom");
+    sessionStorage.removeItem("lastRoom");
+
+    // Go back to home without room parameter
+    window.location.replace("/");
+  };
   // MEDIA CONTROLS
   const toggleAudio = () => {
     const stream = localStreamRef.current;
