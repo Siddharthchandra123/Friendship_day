@@ -675,63 +675,7 @@ pendingCandidatesRef.current = [];
 };
   }, []);
 
-  const createFallbackMediaStream = (): MediaStream => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 480;
-    const ctx = canvas.getContext('2d');
 
-    if (ctx) {
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, 640, 480);
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 34px sans-serif';
-      ctx.fillText('Camera unavailable', 70, 245);
-      ctx.font = '20px sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText('Using a placeholder stream for now', 90, 285);
-    }
-
-    const videoStream = canvas.captureStream(15);
-    const videoTrack = videoStream.getVideoTracks()[0];
-    const tracks: MediaStreamTrack[] = [];
-
-    if (videoTrack) {
-      tracks.push(videoTrack);
-    }
-
-    try {
-      const audioContext = new AudioContext();
-      const destination = audioContext.createMediaStreamDestination();
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 220;
-      gain.gain.value = 0;
-
-      oscillator.connect(gain);
-      gain.connect(destination);
-      oscillator.start();
-
-      const audioTrack = destination.stream.getAudioTracks()[0];
-      if (audioTrack) {
-        tracks.push(audioTrack);
-      }
-    } catch (error) {
-      console.warn('Unable to create fallback audio track:', error);
-    }
-
-    return new MediaStream(tracks);
-  };
-
-  // Request Camera & Microphone access
-  initializeMedia().then(() => {
-    socket.emit("join-room", {
-        roomId: newRoomId,
-        nickname,
-    });
-});
 
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
@@ -805,45 +749,43 @@ pendingCandidatesRef.current = [];
     }
     return result;
   };
-
-  const createRoom = (nickname: string): string => {
+const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
 
     setMyNickname(nickname);
     setRoomFullError(false);
 
-    // Keep context in sync immediately
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
 
     initializeMedia().then(() => {
-      socket.emit("join-room", {
-        roomId: newRoomId,
-        nickname,
-      });
+        socket.emit("join-room", {
+            roomId: newRoomId,
+            nickname,
+        });
     });
 
     return newRoomId;
-  };
+};
   const joinRoom = (id: string, nickname: string) => {
-  const upperId = id.trim().toUpperCase();
+    const upperId = id.trim().toUpperCase();
 
-  setMyNickname(nickname);
-  setRoomFullError(false);
+    setMyNickname(nickname);
+    setRoomFullError(false);
 
-  setRoomId(upperId);
-  roomIdRef.current = upperId;
+    setRoomId(upperId);
+    roomIdRef.current = upperId;
 
-  initializeMedia().then(() => {
-    if (!socket.connected) {
-      socket.connect();
-    }
+    initializeMedia().then(() => {
+        if (!socket.connected) {
+            socket.connect();
+        }
 
-    socket.emit("join-room", {
-      roomId: upperId,
-      nickname,
+        socket.emit("join-room", {
+            roomId: upperId,
+            nickname,
+        });
     });
-  });
 };
 
   const leaveRoom = () => {
