@@ -18,9 +18,7 @@ const register = async ({
     throw new Error("Username and password are required.");
   }
 
-  const existing =
-    db.findUserByUsername(username);
-
+  const existing = db.users.getByUsername(username);
   if (existing) {
     throw new Error("Username already exists.");
   }
@@ -70,7 +68,7 @@ const login = async ({
   }
 
   const user =
-    db.findUserByUsername(username);
+    db.users.getByUsername(username);
 
   if (!user) {
     throw new Error("Invalid username or password.");
@@ -102,7 +100,7 @@ const login = async ({
 const getCurrentUser = (id) => {
 
   const user =
-    db.findUserById(id);
+    db.users.getById(id);
 
   if (!user) {
     throw new Error("User not found.");
@@ -131,7 +129,7 @@ const updateProfile = async (
 ) => {
 
   const user =
-    db.findUserById(id);
+    db.users.getById(id);
 
   if (!user) {
     throw new Error("User not found.");
@@ -178,7 +176,7 @@ const googleLogin = ({
 }) => {
 
   let user =
-    db.findUserByUsername(username);
+    db.user.getByUsername(username);
 
   if (!user) {
 
