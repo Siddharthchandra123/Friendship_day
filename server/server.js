@@ -27,9 +27,34 @@ const JWT_SECRET = process.env.JWT_SECRET || 'friendverse_super_secret_fallback_
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Import file-based database helper (pure JS fallback for Render compatibility)
-const db = require('./db');
-const logAuditEvent = db.logAuditEvent;
+const db = require("./db");
 
+const logAuditEvent = (
+    eventType,
+    userId,
+    username,
+    roomId,
+    details,
+    ip
+) => {
+
+    db.audit.log({
+
+        eventType,
+
+        userId,
+
+        username,
+
+        roomId,
+
+        details,
+
+        ip
+
+    });
+
+};
 // Initialize Kafka client if broker is configured
 let kafka, producer, consumer;
 const KAFKA_BROKER = getKafkaBootstrapServers();
@@ -346,43 +371,81 @@ async function publishEvent(roomId, eventType, payload, senderId, socket = null)
 }
 
 async function getOrCreateGoogleUser(googlePayload) {
-  const email = googlePayload.email ? googlePayload.email.toLowerCase() : null;
-  if (!email) {
-    throw new Error('Google account email is required');
-  }
 
-  const existingUser = db.users.getByEmail(email);
-  if (existingUser) {
-    return existingUser;
-  }
+    const email =
+        googlePayload.email
+            ?.toLowerCase();
 
-  let usernameBase = (email.split('@')[0] || `googleuser${googlePayload.sub}`).replace(/[^a-z0-9._-]/g, '').toLowerCase();
-  if (!usernameBase) {
-    usernameBase = `googleuser${googlePayload.sub.slice(0, 8)}`;
-  }
+    if (!email)
+        throw new Error(
+            "Google account email required."
+        );
 
-  let username = usernameBase;
-  let suffix = 1;
-  while (db.users.getByUsername(username)) {
-    username = `${usernameBase}${suffix}`;
-    suffix += 1;
-  }
+    let user =
+        db.users.getByEmail(email);
 
-  const nickname = (googlePayload.name || googlePayload.given_name || usernameBase).trim();
-  const passwordHash = await bcrypt.hash(`google-oauth:${googlePayload.sub}`, 10);
+    if (user)
+        return user;
 
-  return await new Promise((resolve, reject) => {
-    db.users.create('usr_' + Math.random().toString(36).substring(2, 10), username, passwordHash, nickname, (err, newUser) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      if (googlePayload.picture) {
-        db.users.update(newUser.id, newUser.nickname, googlePayload.picture, newUser.password_hash, () => {});
-      }
-      resolve(newUser);
-    }, email);
-  });
+    let usernameBase =
+        (
+            email.split("@")[0] ||
+            `googleuser${googlePayload.sub}`
+        )
+            .replace(
+                /[^a-z0-9._-]/g,
+                ""
+            )
+            .toLowerCase();
+
+    let username =
+        usernameBase;
+
+    let suffix = 1;
+
+    while (
+        db.users.getByUsername(
+            username
+        )
+    ) {
+
+        username =
+            `${usernameBase}${suffix++}`;
+
+    }
+
+    const passwordHash =
+        await bcrypt.hash(
+
+            `google-oauth:${googlePayload.sub}`,
+
+            10
+
+        );
+
+    user =
+        db.users.create({
+
+            username,
+
+            nickname:
+                googlePayload.name ||
+                username,
+
+            passwordHash,
+
+            email,
+
+            avatar:
+                googlePayload.picture,
+
+            theme:
+                "aurora"
+
+        });
+
+    return user;
+
 }
 
 // Authentication Routes

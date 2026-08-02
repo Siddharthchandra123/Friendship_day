@@ -50,6 +50,8 @@ exports.getByEmail = (email) => {
 
 exports.create = ({
 
+    id,
+
     username,
 
     nickname,
@@ -83,6 +85,7 @@ exports.create = ({
     const user = {
 
         id:
+            id ||
             "usr_" +
             crypto
                 .randomUUID()
@@ -111,34 +114,5 @@ exports.create = ({
     storage.write(FILE, users);
 
     return user;
-
-};
-
-exports.update = (user) => {
-
-    const users = exports.getAll();
-
-    const index = users.findIndex(
-        u => u.id === user.id
-    );
-
-    if (index === -1)
-        throw new Error("User not found");
-
-    users[index] = user;
-
-    storage.write(FILE, users);
-
-    return user;
-
-};
-
-exports.delete = (id) => {
-
-    const users = exports
-        .getAll()
-        .filter(u => u.id !== id);
-
-    storage.write(FILE, users);
 
 };

@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "usr_d77a42f0c1ef",
+    "username": "chandrasiddharth975@gmail.com",
+    "nickname": "chandrasiddharth975@gmail.com",
+    "passwordHash": "$2b$10$5XhDY5zlb8y73TBnG4rJx.FfipbjgilmqblxBgnE63DS4sf5eiz8W",
+    "avatar": null,
+    "email": null,
+    "theme": "aurora",
+    "createdAt": "2026-08-02T08:57:23.484Z"
+  }
+]

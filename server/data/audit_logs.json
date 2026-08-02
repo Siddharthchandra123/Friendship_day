@@ -1,1 +1,24 @@
-[]
+[
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "chandrasiddharth975@gmail.com",
+    "roomId": "59NW140N",
+    "details": {
+      "socketId": "zJQkDWPprramQcIjAAAB"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-02T08:57:28.851Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "chandrasiddharth975@gmail.com",
+    "roomId": "9ZV4WUGK",
+    "details": {
+      "socketId": "rJqG71l-nVd3jJ6JAAAD"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-02T08:57:46.268Z"
+  }
+]

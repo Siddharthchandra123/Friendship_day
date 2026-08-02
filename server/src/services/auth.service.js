@@ -8,226 +8,262 @@ const { toUserDTO } = require("../utils/userDto");
 
 const DEFAULT_THEME = "aurora";
 
-const register = async ({
-  username,
-  nickname,
-  password
-}) => {
+/* ---------------- REGISTER ---------------- */
 
-  if (!username || !password) {
-    throw new Error("Username and password are required.");
-  }
-
-  const existing = db.users.getByUsername(username);
-  if (existing) {
-    throw new Error("Username already exists.");
-  }
-
-  const passwordHash =
-    await bcrypt.hash(password, 10);
-
-  const user = {
-
-    id: crypto.randomUUID(),
-
+exports.register = async ({
     username,
-
-    nickname:
-      nickname || username,
-
-    avatar: null,
-
-    theme: DEFAULT_THEME,
-
-    passwordHash
-
-  };
-
-  db.users.create(user);
-
-  const token =
-    generateToken(user);
-
-  return {
-
-    token,
-
-    user: toUserDTO(user)
-
-  };
-
-};
-
-const login = async ({
-  username,
-  password
-}) => {
-
-  if (!username || !password) {
-    throw new Error("Missing credentials.");
-  }
-
-  const user =
-    db.users.getByUsername(username);
-
-  if (!user) {
-    throw new Error("Invalid username or password.");
-  }
-
-  const ok =
-    await bcrypt.compare(
-      password,
-      user.passwordHash
-    );
-
-  if (!ok) {
-    throw new Error("Invalid username or password.");
-  }
-
-  const token =
-    generateToken(user);
-
-  return {
-
-    token,
-
-    user: toUserDTO(user)
-
-  };
-
-};
-
-const getCurrentUser = (id) => {
-
-  const user =
-    db.users.getById(id);
-
-  if (!user) {
-    throw new Error("User not found.");
-  }
-
-  return toUserDTO(user);
-
-};
-
-const updateProfile = async (
-
-  id,
-
-  {
-
     nickname,
-
-    avatar,
-
-    password,
-
-    theme
-
-  }
-
-) => {
-
-  const user =
-    db.users.getById(id);
-
-  if (!user) {
-    throw new Error("User not found.");
-  }
-
-  if (nickname !== undefined) {
-    user.nickname = nickname;
-  }
-
-  if (avatar !== undefined) {
-    user.avatar = avatar;
-  }
-
-  if (theme !== undefined) {
-    user.theme = theme;
-  }
-
-  if (password) {
-
-    user.passwordHash =
-      await bcrypt.hash(
-        password,
-        10
-      );
-
-  }
-
-  db.users.update(user);
-
-  return toUserDTO(user);
-
-};
-
-const logout = () => {
-
-  return true;
-
-};
-
-const googleLogin = ({
-  username,
-  nickname,
-  avatar
+    password
 }) => {
 
-  let user =
-    db.user.getByUsername(username);
+    if (!username || !password) {
+        throw new Error("Username and password are required.");
+    }
 
-  if (!user) {
+    username = username.trim().toLowerCase();
 
-    user = {
+    const existing =
+        db.users.getByUsername(username);
 
-      id: crypto.randomUUID(),
+    if (existing) {
+        throw new Error("Username already exists.");
+    }
 
-      username,
+    const passwordHash =
+        await bcrypt.hash(password, 10);
 
-      nickname:
-        nickname || username,
+    const user =
+        db.users.create({
 
-      avatar:
-        avatar || null,
+            id:
+                "usr_" +
+                crypto.randomUUID()
+                    .replace(/-/g, "")
+                    .substring(0, 12),
 
-      theme:
-        DEFAULT_THEME,
+            username,
 
-      passwordHash: null
+            nickname:
+                nickname?.trim() || username,
+
+            avatar: null,
+
+            theme: DEFAULT_THEME,
+
+            passwordHash,
+
+            createdAt:
+                new Date().toISOString()
+
+        });
+
+    return {
+
+        token:
+            generateToken(user),
+
+        user:
+            toUserDTO(user)
 
     };
 
-    db.users.create(user);
+};
 
-  }
+/* ---------------- LOGIN ---------------- */
 
-  const token =
-    generateToken(user);
+exports.login = async ({
+    username,
+    password
+}) => {
 
-  return {
+    if (!username || !password) {
+        throw new Error("Missing credentials.");
+    }
 
-    token,
+    username = username.trim().toLowerCase();
 
-    user: toUserDTO(user)
+    const user =
+        db.users.getByUsername(username);
 
-  };
+    if (!user) {
+        throw new Error("Invalid username or password.");
+    }
+
+    const ok =
+        await bcrypt.compare(
+            password,
+            user.passwordHash
+        );
+
+    if (!ok) {
+        throw new Error("Invalid username or password.");
+    }
+
+    return {
+
+        token:
+            generateToken(user),
+
+        user:
+            toUserDTO(user)
+
+    };
 
 };
 
-module.exports = {
+/* ---------------- CURRENT USER ---------------- */
 
-  register,
+exports.getCurrentUser = (id) => {
 
-  login,
+    const user =
+        db.users.getById(id);
 
-  logout,
+    if (!user) {
+        throw new Error("User not found.");
+    }
 
-  googleLogin,
-
-  getCurrentUser,
-
-  updateProfile
+    return toUserDTO(user);
 
 };
+
+/* ---------------- UPDATE PROFILE ---------------- */
+
+exports.updateProfile = async (
+
+    id,
+
+    {
+
+        nickname,
+
+        avatar,
+
+        password,
+
+        theme
+
+    }
+
+) => {
+
+    const user =
+        db.users.getById(id);
+
+    if (!user) {
+        throw new Error("User not found.");
+    }
+
+    if (nickname !== undefined)
+        user.nickname = nickname;
+
+    if (avatar !== undefined)
+        user.avatar = avatar;
+
+    if (theme !== undefined)
+        user.theme = theme;
+
+    if (password) {
+
+        user.passwordHash =
+            await bcrypt.hash(
+                password,
+                10
+            );
+
+    }
+
+    db.users.update(user);
+
+    return toUserDTO(user);
+
+};
+
+/* ---------------- GOOGLE LOGIN ---------------- */
+
+exports.googleLogin = async ({
+
+    email,
+
+    username,
+
+    nickname,
+
+    avatar
+
+}) => {
+
+    if (!email) {
+        throw new Error(
+            "Google account email missing."
+        );
+    }
+
+    let user =
+        db.users.getByEmail(email);
+
+    if (!user) {
+
+        let finalUsername =
+            username.toLowerCase();
+
+        let i = 1;
+
+        while (
+            db.users.getByUsername(
+                finalUsername
+            )
+        ) {
+
+            finalUsername =
+                username + i++;
+
+        }
+
+        user =
+            db.users.create({
+
+                id:
+                    "usr_" +
+                    crypto.randomUUID()
+                        .replace(/-/g, "")
+                        .substring(0, 12),
+
+                username:
+                    finalUsername,
+
+                nickname:
+                    nickname ||
+                    finalUsername,
+
+                avatar:
+                    avatar || null,
+
+                email,
+
+                theme:
+                    DEFAULT_THEME,
+
+                passwordHash: null,
+
+                createdAt:
+                    new Date().toISOString()
+
+            });
+
+    }
+
+    return {
+
+        token:
+            generateToken(user),
+
+        user:
+            toUserDTO(user)
+
+    };
+
+};
+
+/* ---------------- LOGOUT ---------------- */
+
+exports.logout = () => true;
