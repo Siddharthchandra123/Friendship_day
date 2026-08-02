@@ -12,6 +12,8 @@ const path = require('path');
 const net = require('net');
 const { getKafkaBootstrapServers, getKafkaTopicName, getKafkaConsumerGroupId } = require('./kafkaConfig');
 
+const postsRoutes = require("./src/routes/posts.routes");
+
 const app = express();
 app.use(cors({
   origin: true,
@@ -19,6 +21,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+app.use("/api/posts", postsRoutes);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'friendverse_super_secret_fallback_key';
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -383,199 +386,9 @@ async function getOrCreateGoogleUser(googlePayload) {
 }
 
 // Authentication Routes
+const authRoutes = require("./src/routes/auth.routes");
 
-app.post('/api/auth/google', async (req, res) => {
-  const { credential } = req.body;
-  if (!credential) {
-    return res.status(400).json({ error: 'Google credential is required' });
-  }
-
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    return res.status(500).json({ error: 'Google authentication is not configured on the server.' });
-  }
-
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID
-    });
-
-    const payload = ticket.getPayload();
-    const user = await getOrCreateGoogleUser(payload);
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    logAuditEvent('USER_GOOGLE_LOGIN', user.id, user.username, null, { email: user.email }, req.ip);
-
-    res.json({
-      user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar }
-    });
-  } catch (err) {
-    console.error('Google login error:', err);
-    res.status(401).json({ error: 'Google authentication failed' });
-  }
-});
-
-app.post('/api/auth/register', async (req, res) => {
-  const { username, nickname, password } = req.body;
-  if (!username || !nickname || !password) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-
-  const cleanUsername = username.trim().toLowerCase();
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
-    const userId = 'usr_' + Math.random().toString(36).substring(2, 10);
-
-    db.createUser(userId, cleanUsername, passwordHash, nickname.trim(), (err, newUser) => {
-      if (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-          return res.status(400).json({ error: 'Username is already taken' });
-        }
-        return res.status(500).json({ error: 'Database operation failed' });
-      }
-
-      const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
-      
-      res.cookie('token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
-
-      logAuditEvent('USER_REGISTER', userId, cleanUsername, null, { nickname: nickname.trim() }, req.ip);
-
-      res.status(201).json({
-        user: { id: userId, username: cleanUsername, nickname: nickname.trim(), avatar: null }
-      });
-    });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Registration failed' });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-
-  const cleanUsername = username.trim().toLowerCase();
-  const user = db.getUserByUsername(cleanUsername);
-  
-  if (!user) {
-    return res.status(400).json({ error: 'Invalid credentials' });
-  }
-
-  try {
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
-    
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-
-    logAuditEvent('USER_LOGIN', user.id, user.username, null, null, req.ip);
-
-    res.json({
-      user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar }
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Login failed' });
-  }
-});
-
-app.get('/api/auth/me', (req, res) => {
-  const token = req.cookies.token;
-  if (!token) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = db.getUserById(decoded.userId);
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-    res.json({
-      user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar }
-    });
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  const token = req.cookies.token;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      logAuditEvent('USER_LOGOUT', decoded.userId, null, null, null, req.ip);
-    } catch (err) {}
-  }
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-  });
-  res.json({ success: true });
-});
-
-app.post('/api/auth/profile', async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const { nickname, avatar, password } = req.body;
-    const user = db.getUserById(decoded.userId);
-
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    let passwordHash = user.password_hash;
-    if (password && password.trim().length > 0) {
-      const salt = await bcrypt.genSalt(10);
-      passwordHash = await bcrypt.hash(password, salt);
-    }
-
-    const updatedNickname = nickname ? nickname.trim() : user.nickname;
-    const updatedAvatar = avatar !== undefined ? avatar : user.avatar;
-
-    db.updateUser(decoded.userId, updatedNickname, updatedAvatar, passwordHash, (err, updatedUser) => {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to update profile' });
-      }
-      logAuditEvent('USER_PROFILE_UPDATE', user.id, user.username, null, { changedNickname: nickname !== user.nickname, changedAvatar: !!avatar, changedPassword: !!password }, req.ip);
-      res.json({
-        user: { id: user.id, username: user.username, nickname: updatedNickname, avatar: updatedAvatar }
-      });
-    });
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
-
+app.use("/api/auth", authRoutes);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -831,106 +644,8 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// -------------------- POSTS STORAGE --------------------
-let posts = [];
-// Get all posts
-app.get("/api/posts", (req, res) => {
-  const sortedPosts = [...posts].sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  );
 
-  res.json(sortedPosts);
-});
 
-app.get("/api/posts/:id", (req, res) => {
-  const post = posts.find((p) => p.id === req.params.id);
-
-  if (!post) {
-    return res.status(404).json({
-      success: false,
-      message: "Post not found",
-    });
-  }
-
-  res.json(post);
-});
-
-app.post("/api/posts", (req, res) => {
-  const {
-    author,
-    content,
-    image = null,
-    profileImage = null,
-  } = req.body;
-
-  if (!author || !content) {
-    return res.status(400).json({
-      success: false,
-      message: "Author and content are required",
-    });
-  }
-
-  const newPost = {
-    id: Date.now().toString(),
-    author,
-    content,
-    image,
-    profileImage,
-    likes: [],
-    comments: [],
-    createdAt: new Date().toISOString(),
-  };
-
-  posts.unshift(newPost);
-
-  res.status(201).json({
-    success: true,
-    post: newPost,
-  });
-});
-
-app.post("/api/posts/:id/like", (req, res) => {
-  const { userId } = req.body;
-
-  const post = posts.find((p) => p.id === req.params.id);
-
-  if (!post) {
-    return res.status(404).json({
-      success: false,
-      message: "Post not found",
-    });
-  }
-
-  if (!post.likes.includes(userId)) {
-    post.likes.push(userId);
-  }
-
-  res.json(post);
-});
-
-app.post("/api/posts/:id/comment", (req, res) => {
-  const { author, text } = req.body;
-
-  const post = posts.find((p) => p.id === req.params.id);
-
-  if (!post) {
-    return res.status(404).json({
-      success: false,
-      message: "Post not found",
-    });
-  }
-
-  const comment = {
-    id: Date.now().toString(),
-    author,
-    text,
-    createdAt: new Date().toISOString(),
-  };
-
-  post.comments.push(comment);
-
-  res.json(post);
-});
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Production server listening on port ${PORT}`);
