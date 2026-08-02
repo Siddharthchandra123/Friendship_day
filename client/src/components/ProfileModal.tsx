@@ -100,7 +100,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
           <X size={18} />
         </button>
 
-        <h2 className="text-2xl font-bold tracking-tight mb-6 font-display">Profile Settings</h2>
+        <h2 className="text-2xl font-bold tracking-tight mb-6 font-display">Edit Profile</h2>
 
         {/* Success/Error Alerts */}
         {success && (
@@ -203,7 +203,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
               {isLoading ? (
                 <div className="w-5 h-5 mx-auto rounded-full border-2 border-white/20 border-t-white animate-spin" />
               ) : (
-                'Save Changes'
+                'Update Profile'
               )}
             </button>
           </div>

@@ -831,8 +831,105 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// -------------------- POSTS STORAGE --------------------
+let posts = [];
+// Get all posts
 app.get("/api/posts", (req, res) => {
-  res.json([]);
+  const sortedPosts = [...posts].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  res.json(sortedPosts);
+});
+
+app.get("/api/posts/:id", (req, res) => {
+  const post = posts.find((p) => p.id === req.params.id);
+
+  if (!post) {
+    return res.status(404).json({
+      success: false,
+      message: "Post not found",
+    });
+  }
+
+  res.json(post);
+});
+
+app.post("/api/posts", (req, res) => {
+  const {
+    author,
+    content,
+    image = null,
+    profileImage = null,
+  } = req.body;
+
+  if (!author || !content) {
+    return res.status(400).json({
+      success: false,
+      message: "Author and content are required",
+    });
+  }
+
+  const newPost = {
+    id: Date.now().toString(),
+    author,
+    content,
+    image,
+    profileImage,
+    likes: [],
+    comments: [],
+    createdAt: new Date().toISOString(),
+  };
+
+  posts.unshift(newPost);
+
+  res.status(201).json({
+    success: true,
+    post: newPost,
+  });
+});
+
+app.post("/api/posts/:id/like", (req, res) => {
+  const { userId } = req.body;
+
+  const post = posts.find((p) => p.id === req.params.id);
+
+  if (!post) {
+    return res.status(404).json({
+      success: false,
+      message: "Post not found",
+    });
+  }
+
+  if (!post.likes.includes(userId)) {
+    post.likes.push(userId);
+  }
+
+  res.json(post);
+});
+
+app.post("/api/posts/:id/comment", (req, res) => {
+  const { author, text } = req.body;
+
+  const post = posts.find((p) => p.id === req.params.id);
+
+  if (!post) {
+    return res.status(404).json({
+      success: false,
+      message: "Post not found",
+    });
+  }
+
+  const comment = {
+    id: Date.now().toString(),
+    author,
+    text,
+    createdAt: new Date().toISOString(),
+  };
+
+  post.comments.push(comment);
+
+  res.json(post);
 });
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
