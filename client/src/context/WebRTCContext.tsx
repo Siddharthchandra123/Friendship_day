@@ -715,45 +715,108 @@ console.log("Waiting for existing peer to initiate WebRTC");
 
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
-    if (type === 'chat') {
-      socket.emit('chat', { roomId: roomIdRef.current, message: payload });
-    } else if (type === 'memory-add') {
-      socket.emit('memory-add', { roomId: roomIdRef.current, item: payload.item });
-    } else if (type === 'memory-delete') {
-      socket.emit('memory-delete', { roomId: roomIdRef.current, id: payload.id });
-    } else if (type === 'timeline-add') {
-      socket.emit('timeline-add', { roomId: roomIdRef.current, event: payload.event });
-    } else if (type === 'timeline-delete') {
-      socket.emit('timeline-delete', { roomId: roomIdRef.current, id: payload.id });
-    } else if (type === 'select-game') {
-      socket.emit('select-game', { roomId: roomIdRef.current, game: payload.game });
-    } else if (type === 'game-action') {
-      socket.emit('game-action', { roomId: roomIdRef.current, payload });
-    } else if (type === 'quiz-action') {
-      socket.emit('quiz-action', { roomId: roomIdRef.current, payload });
-    } else if (type === 'quiz-reset') {
-      socket.emit('quiz-reset', { roomId: roomIdRef.current });
-    } else if (type === 'meter-action') {
-      socket.emit('meter-action', { roomId: roomIdRef.current, payload });
-    } else if (type === 'meter-reset') {
-      socket.emit('meter-reset', { roomId: roomIdRef.current });
-    } else if (type === 'surprise') {
-      socket.emit('surprise', { roomId: roomIdRef.current, surpriseType: payload.surpriseType, message: payload.message });
-    } else if (type === 'typing') {
-      socket.emit('typing', { roomId: roomIdRef.current, isTyping: payload.isTyping });
-    } else if (type === 'reaction') {
-      socket.emit('reaction', { roomId: roomIdRef.current, emoji: payload.emoji });
-    } else if (type === 'draw-stroke') {
-      socket.emit('draw-stroke', { roomId: roomIdRef.current, stroke: payload.stroke });
-    } else if (type === 'draw-clear') {
-      socket.emit('draw-clear', { roomId: roomIdRef.current });
-    } else if (type === 'draw-undo') {
-      socket.emit('draw-undo', { roomId: roomIdRef.current, remainingStrokes: payload.remainingStrokes });
-    } else {
-      socket.emit(type, { roomId: roomIdRef.current, ...payload });
-    }
-  };
+    console.log("📤 EMIT:", type, payload, "Room:", roomIdRef.current);
 
+    if (type === 'chat') {
+        socket.emit('chat', {
+            roomId: roomIdRef.current,
+            message: payload
+        });
+
+    } else if (type === 'memory-add') {
+        socket.emit('memory-add', { roomId: roomIdRef.current, item: payload.item });
+
+    } else if (type === 'memory-delete') {
+        socket.emit('memory-delete', { roomId: roomIdRef.current, id: payload.id });
+
+    } else if (type === 'timeline-add') {
+        socket.emit('timeline-add', { roomId: roomIdRef.current, event: payload.event });
+
+    } else if (type === 'timeline-delete') {
+        socket.emit('timeline-delete', { roomId: roomIdRef.current, id: payload.id });
+
+    } else if (type === 'select-game') {
+        socket.emit('select-game', { roomId: roomIdRef.current, game: payload.game });
+
+    } else if (type === 'game-action') {
+        socket.emit('game-action', { roomId: roomIdRef.current, payload });
+
+    } else if (type === 'quiz-action') {
+        socket.emit('quiz-action', { roomId: roomIdRef.current, payload });
+
+    } else if (type === 'quiz-reset') {
+        socket.emit('quiz-reset', { roomId: roomIdRef.current });
+
+    } else if (type === 'meter-action') {
+        socket.emit('meter-action', { roomId: roomIdRef.current, payload });
+
+    } else if (type === 'meter-reset') {
+        socket.emit('meter-reset', { roomId: roomIdRef.current });
+
+    } else if (type === 'surprise') {
+        socket.emit('surprise', {
+            roomId: roomIdRef.current,
+            surpriseType: payload.surpriseType,
+            message: payload.message
+        });
+
+    } else if (type === 'typing') {
+        socket.emit('typing', {
+            roomId: roomIdRef.current,
+            isTyping: payload.isTyping
+        });
+
+    } else if (type === 'reaction') {
+        socket.emit('reaction', {
+            roomId: roomIdRef.current,
+            emoji: payload.emoji
+        });
+
+    } else if (type === 'draw-stroke') {
+        socket.emit('draw-stroke', {
+            roomId: roomIdRef.current,
+            stroke: payload.stroke
+        });
+
+    } else if (type === 'draw-clear') {
+        socket.emit('draw-clear', {
+            roomId: roomIdRef.current
+        });
+
+    } else if (type === 'draw-undo') {
+        socket.emit('draw-undo', {
+            roomId: roomIdRef.current,
+            remainingStrokes: payload.remainingStrokes
+        });
+
+    } else {
+        socket.emit(type, {
+            roomId: roomIdRef.current,
+            ...payload
+        });
+    }
+}
+
+socket.on("chat", ({ senderId, message }) => {
+    console.log("📨 CHAT RECEIVED", senderId, message);
+
+    setChatMessages(prev => [
+        ...prev,
+        {
+            id: message.id,
+            sender: "peer",
+            senderId,
+            text: message.text,
+            emoji: message.emoji,
+            timestamp: message.timestamp,
+        },
+    ]);
+});
+
+socket.on("reaction", ({ emoji }) => {
+    console.log("❤️ REACTION RECEIVED", emoji);
+    triggerFloatingReaction(emoji);
+});
   const cleanupMediaAndRTC = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
