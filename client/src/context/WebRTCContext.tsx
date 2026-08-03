@@ -242,28 +242,35 @@ useEffect(() => {
 
   // WebSockets / WebRTC References
   const socket = useSocket();
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const activePeerIdRef = useRef<string | null>(null);
-  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const peerConnectionsRef = useRef(
+    new Map<string, RTCPeerConnection>()
+);
+  
+  const pendingCandidatesRef =
+    useRef(
+        new Map<string, RTCIceCandidateInit[]>()
+    );
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const closePeerConnection = () => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.onicecandidate = null;
-      peerConnectionRef.current.ontrack = null;
-      peerConnectionRef.current.onconnectionstatechange = null;
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-    activePeerIdRef.current = null;
-    pendingCandidatesRef.current = [];
-  };
+  const closePeerConnections = () => {
+    peerConnectionsRef.current.forEach(pc => {
+        pc.onicecandidate = null;
+        pc.ontrack = null;
+        pc.onconnectionstatechange = null;
+        pc.close();
+    });
+
+    peerConnectionsRef.current.clear();
+pendingCandidatesRef.current.clear();
+};
 
   const createPeerConnection = (peerId: string) => {
-    if (peerConnectionRef.current) {
-      return peerConnectionRef.current;
-    }
+    const existing = peerConnectionsRef.current.get(peerId);
+
+if (existing) {
+    return existing;
+}
 
     const peerConnection = new RTCPeerConnection({
       iceServers: [
@@ -304,6 +311,12 @@ useEffect(() => {
         setPeerDisconnected(true);
         setRemoteStreams(prev => {
           const next = { ...prev };
+          const pc = peerConnectionsRef.current.get(peerId);
+
+if (pc) {
+    pc.close();
+    peerConnectionsRef.current.delete(peerId);
+}
           delete next[peerId];
           return next;
         });
@@ -315,9 +328,9 @@ useEffect(() => {
       localStreamObj.getTracks().forEach(track => peerConnection.addTrack(track, localStreamObj));
     }
 
-    peerConnectionRef.current = peerConnection;
-    activePeerIdRef.current = peerId;
-    return peerConnection;
+    peerConnectionsRef.current.set(peerId, peerConnection);
+
+return peerConnection;
   };
 
   const connectToPeer = async (peerId: string) => {
@@ -347,12 +360,16 @@ useEffect(() => {
 
     try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-      for (const candidate of pendingCandidatesRef.current) {
+      const queue =
+    pendingCandidatesRef.current.get(peerId) || [];
+
+for (const candidate of queue) {
     await peerConnection.addIceCandidate(
         new RTCIceCandidate(candidate)
     );
 }
-pendingCandidatesRef.current = [];
+
+pendingCandidatesRef.current.delete(peerId);
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('webrtc-answer', {
@@ -366,11 +383,15 @@ pendingCandidatesRef.current = [];
   };
 
   const handleIncomingAnswer = async ({
+    peerId,
     answer,
 }: {
+    peerId: string;
     answer: RTCSessionDescriptionInit;
 }) => {
-    const peerConnection = peerConnectionRef.current;
+
+    const peerConnection =
+        peerConnectionsRef.current.get(peerId);
 
     if (!peerConnection) {
         return;
@@ -393,21 +414,41 @@ pendingCandidatesRef.current = [];
     }
 };
 
-  const handleIncomingCandidate = async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-    const peerConnection = peerConnectionRef.current;
-    if (!peerConnection) {
-      pendingCandidatesRef.current.push(candidate);
-      return;
-    }
+  const handleIncomingCandidate = async ({
+    peerId,
+    candidate,
+}: {
+    peerId: string;
+    candidate: RTCIceCandidateInit;
+}) => {
 
+    const peerConnection =
+        peerConnectionsRef.current.get(peerId);
+
+    if (!peerConnection) {
+    const queue =
+        pendingCandidatesRef.current.get(peerId) || [];
+
+    queue.push(candidate);
+
+    pendingCandidatesRef.current.set(peerId, queue);
+
+    return;
+}
     try {
       await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      for (const candidate of pendingCandidatesRef.current) {
+      
+
+const queue =
+    pendingCandidatesRef.current.get(peerId) || [];
+
+for (const candidate of queue) {
     await peerConnection.addIceCandidate(
         new RTCIceCandidate(candidate)
     );
 }
-pendingCandidatesRef.current = [];
+
+pendingCandidatesRef.current.delete(peerId);
     } catch (err) {
       console.error('Error adding incoming ICE candidate:', err);
     }
@@ -483,7 +524,6 @@ console.log("Waiting for existing peer to initiate WebRTC");
     socket.on('peer-joined', async ({ peerId, nickname }) => {
       const name = nickname || 'Friend';
       console.log(`Peer joined: ${peerId} (${name})`);
-      setPeerId(peerId);
       setIsConnecting(true);
       setPeerDisconnected(false);
       setPeerNicknames(prev => ({ ...prev, [peerId]: name }));
@@ -551,14 +591,45 @@ console.log("Waiting for existing peer to initiate WebRTC");
       await handleIncomingOffer({ peerId, offer });
     });
 
-    socket.on('webrtc-answer', async ({ answer }) => {
-      await handleIncomingAnswer({ answer });
+    socket.on("webrtc-answer", async ({ peerId, answer }) => {
+    await handleIncomingAnswer({
+        peerId,
+        answer,
+    });
+});
+
+    socket.on("webrtc-candidate", async ({ peerId, candidate }) => {
+    await handleIncomingCandidate({
+        peerId,
+        candidate,
+    });
+});
+  const triggerFloatingReaction = (emoji: string) => {
+    const container = document.getElementById("floating-reactions-container");
+    if (!container) return;
+
+    const el = document.createElement("div");
+    el.innerText = emoji;
+    el.style.position = "absolute";
+    el.style.left = `${Math.random() * 80 + 10}%`;
+    el.style.bottom = "20px";
+    el.style.fontSize = "3rem";
+    el.style.pointerEvents = "none";
+    el.style.transition = "transform 2s ease-out, opacity 2s ease-out";
+    el.style.opacity = "1";
+    el.style.zIndex = "9999";
+
+    container.appendChild(el);
+
+    requestAnimationFrame(() => {
+      el.style.transform = "translateY(-500px)";
+      el.style.opacity = "0";
     });
 
-    socket.on('webrtc-candidate', async ({ candidate }) => {
-      await handleIncomingCandidate({ candidate });
-    });
-
+    setTimeout(() => {
+      el.remove();
+    }, 2000);
+  };
     // WSS Event Relays (replacing WebRTC Data Channel sync)
     socket.on('chat', ({ senderId, message }) => {
       setChatMessages(prev => [...prev, {
@@ -706,10 +777,36 @@ console.log("Waiting for existing peer to initiate WebRTC");
         submittedPeer: false
       });
     });
+    
+  const triggerFloatingHearts = () => {
+    const container = document.getElementById('floating-reactions-container');
+    if (!container) return;
 
-    socket.on('surprise', ({ surpriseType, message }) => {
-      handleSurpriseReception(surpriseType, message);
-    });
+    for (let i = 0; i < 20; i++) {
+      setTimeout(() => {
+        const heart = document.createElement('div');
+        heart.innerText = ['❤️', '💖', '💝', '✨'][Math.floor(Math.random() * 4)];
+        heart.style.position = 'absolute';
+        heart.style.bottom = '-50px';
+        heart.style.left = `${Math.random() * 90}%`;
+        heart.style.fontSize = `${Math.random() * 2 + 1.5}rem`;
+        heart.style.pointerEvents = 'none';
+        heart.style.zIndex = '9999';
+        heart.style.opacity = '1';
+        heart.style.transition = `all ${Math.random() * 2 + 2}s cubic-bezier(0.1, 0.8, 0.3, 1)`;
+
+        container.appendChild(heart);
+
+        requestAnimationFrame(() => {
+          heart.style.transform = `translateY(-${window.innerHeight * 0.9}px) scale(${Math.random() * 0.5 + 1.0}) rotate(${Math.random() * 100 - 50}deg)`;
+          heart.style.opacity = '0';
+        });
+
+        setTimeout(() => heart.remove(), 4000);
+      }, i * 150);
+    }
+  };
+    
 
     return () => {
     socket.off("joined");
@@ -740,6 +837,26 @@ console.log("Waiting for existing peer to initiate WebRTC");
 };
   }, []);
 
+  const handleSurpriseReception = (type: string, message: string) => {
+      if (type === 'confetti') {
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      } else if (type === 'hearts') {
+        triggerFloatingHearts();
+      }
+
+      setSurpriseNotification({
+        message: `Your bestie ${message}`,
+        type
+      });
+      setTimeout(() => setSurpriseNotification(null), 5000);
+    };
+    socket.on('surprise', ({ surpriseType, message }) => {
+      handleSurpriseReception(surpriseType, message);
+    });
 
 
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
@@ -826,26 +943,7 @@ console.log("Waiting for existing peer to initiate WebRTC");
     }
 }
 
-socket.on("chat", ({ senderId, message }) => {
-    console.log("📨 CHAT RECEIVED", senderId, message);
 
-    setChatMessages(prev => [
-        ...prev,
-        {
-            id: message.id,
-            sender: "peer",
-            senderId,
-            text: message.text,
-            emoji: message.emoji,
-            timestamp: message.timestamp,
-        },
-    ]);
-});
-
-socket.on("reaction", ({ emoji }) => {
-    console.log("❤️ REACTION RECEIVED", emoji);
-    triggerFloatingReaction(emoji);
-});
   const cleanupMediaAndRTC = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -858,7 +956,7 @@ socket.on("reaction", ({ emoji }) => {
       screenStreamRef.current = null;
     }
 
-    closePeerConnection();
+    closePeerConnections();
 
     setRemoteStreams({});
     setPeerNicknames({});
@@ -950,7 +1048,7 @@ const joinRoom = (id: string, nickname: string) => {
     setRoomId("");
     roomIdRef.current = "";
 
-    setPeerId(null);
+
     setPeerNicknames({});
     setRemoteStreams({});
     setIsConnected(false);
@@ -971,35 +1069,35 @@ const joinRoom = (id: string, nickname: string) => {
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioMuted(!audioTrack.enabled);
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.getSenders().forEach(sender => {
-            if (sender.track?.kind === 'audio') {
-              sender.replaceTrack(audioTrack).catch(() => undefined);
-            }
-          });
+        peerConnectionsRef.current.forEach(pc => {
+    pc.getSenders().forEach(sender => {
+        if (sender.track?.kind === "audio") {
+            sender.replaceTrack(audioTrack).catch(() => {});
         }
-      }
-    }
-  };
+    });
+});
+}}};    
 
-  const toggleVideo = () => {
+const toggleVideo = () => {
     const stream = localStreamRef.current;
-    if (stream) {
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoMuted(!videoTrack.enabled);
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.getSenders().forEach(sender => {
-            if (sender.track?.kind === 'video') {
-              sender.replaceTrack(videoTrack).catch(() => undefined);
-            }
-          });
-        }
-      }
-    }
-  };
 
+    if (stream) {
+        const videoTrack = stream.getVideoTracks()[0];
+
+        if (videoTrack) {
+            videoTrack.enabled = !videoTrack.enabled;
+            setIsVideoMuted(!videoTrack.enabled);
+
+            peerConnectionsRef.current.forEach(pc => {
+                pc.getSenders().forEach(sender => {
+                    if (sender.track?.kind === "video") {
+                        sender.replaceTrack(videoTrack).catch(() => {});
+                    }
+                });
+            });
+        }
+    }
+};
   const toggleScreenShare = async () => {
     if (!isScreenSharing) {
       try {
@@ -1009,13 +1107,13 @@ const joinRoom = (id: string, nickname: string) => {
 
         const screenTrack = stream.getVideoTracks()[0];
 
-        if (peerConnectionRef.current) {
-          peerConnectionRef.current.getSenders().forEach(sender => {
-            if (sender.track?.kind === 'video') {
-              sender.replaceTrack(screenTrack).catch(() => undefined);
-            }
-          });
+        peerConnectionsRef.current.forEach(pc => {
+    pc.getSenders().forEach(sender => {
+        if (sender.track?.kind === "video") {
+            sender.replaceTrack(screenTrack).catch(() => {});
         }
+    });
+});
 
         screenTrack.onended = () => {
           stopScreenSharing();
@@ -1045,13 +1143,13 @@ const joinRoom = (id: string, nickname: string) => {
     navigator.mediaDevices.getUserMedia({ video: true }).then(async (camStream) => {
       const camTrack = camStream.getVideoTracks()[0];
 
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.getSenders().forEach(sender => {
-          if (sender.track?.kind === 'video') {
-            sender.replaceTrack(camTrack).catch(() => undefined);
-          }
-        });
-      }
+      peerConnectionsRef.current.forEach(pc => {
+    pc.getSenders().forEach(sender => {
+        if (sender.track?.kind === "video") {
+            sender.replaceTrack(camTrack).catch(() => {});
+        }
+    });
+});
 
       const mergedStream = new MediaStream([camTrack]);
       const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
@@ -1087,9 +1185,34 @@ const joinRoom = (id: string, nickname: string) => {
   };
 
   const setMyTyping = (isTyping: boolean) => {
-    sendDataChannelMsg('typing', { isTyping });
-  };
+      sendDataChannelMsg('typing', { isTyping });
+    };
+  const triggerFloatingReaction = (emoji: string) => {
+      const container = document.getElementById("floating-reactions-container");
+      if (!container) return;
 
+      const el = document.createElement("div");
+      el.innerText = emoji;
+      el.style.position = "absolute";
+      el.style.left = `${Math.random() * 80 + 10}%`;
+      el.style.bottom = "20px";
+      el.style.fontSize = "3rem";
+      el.style.pointerEvents = "none";
+      el.style.transition = "transform 2s ease-out, opacity 2s ease-out";
+      el.style.opacity = "1";
+      el.style.zIndex = "9999";
+
+      container.appendChild(el);
+
+      requestAnimationFrame(() => {
+        el.style.transform = "translateY(-500px)";
+        el.style.opacity = "0";
+      });
+
+      setTimeout(() => {
+        el.remove();
+      }, 2000);
+    };
   // EMOJI REACTION SYNC
   const sendEmojiReaction = (emoji: string) => {
     addActivityFeedItem({
@@ -1104,34 +1227,7 @@ const joinRoom = (id: string, nickname: string) => {
     triggerFloatingReaction(emoji);
   };
 
-  const triggerFloatingReaction = (emoji: string) => {
-    const container = document.getElementById('floating-reactions-container');
-    if (!container) return;
-
-    const reactionEl = document.createElement('div');
-    reactionEl.innerText = emoji;
-    reactionEl.style.position = 'absolute';
-    reactionEl.style.bottom = '0px';
-    reactionEl.style.left = `${Math.random() * 80 + 10}%`;
-    reactionEl.style.fontSize = '3rem';
-    reactionEl.style.filter = 'drop-shadow(0 0 12px rgba(255, 255, 255, 0.35))';
-    reactionEl.style.pointerEvents = 'none';
-    reactionEl.style.zIndex = '9999';
-    reactionEl.style.opacity = '1';
-    reactionEl.style.transition = 'all 2.5s cubic-bezier(0.1, 0.8, 0.3, 1)';
-
-    container.appendChild(reactionEl);
-
-    requestAnimationFrame(() => {
-      reactionEl.style.transform = `translateY(-${window.innerHeight * 0.8}px) scale(1.5) rotate(${Math.random() * 60 - 30}deg)`;
-      reactionEl.style.opacity = '0';
-    });
-
-    setTimeout(() => {
-      reactionEl.remove();
-    }, 2500);
-  };
-
+  
   // DRAWING CANVAS MODULE
   const sendCanvasDraw = (drawStroke: any) => {
     setCanvasStrokes(prev => {
@@ -1263,6 +1359,34 @@ const joinRoom = (id: string, nickname: string) => {
     "Why are friend groups like math? They sum up our happiness! ➕"
   ];
 
+  const triggerFloatingHearts = () => {
+    const container = document.getElementById('floating-reactions-container');
+    if (!container) return;
+
+    for (let i = 0; i < 20; i++) {
+      setTimeout(() => {
+        const heart = document.createElement('div');
+        heart.innerText = ['❤️', '💖', '💝', '✨'][Math.floor(Math.random() * 4)];
+        heart.style.position = 'absolute';
+        heart.style.bottom = '-50px';
+        heart.style.left = `${Math.random() * 90}%`;
+        heart.style.fontSize = `${Math.random() * 2 + 1.5}rem`;
+        heart.style.pointerEvents = 'none';
+        heart.style.zIndex = '9999';
+        heart.style.opacity = '1';
+        heart.style.transition = `all ${Math.random() * 2 + 2}s cubic-bezier(0.1, 0.8, 0.3, 1)`;
+
+        container.appendChild(heart);
+
+        requestAnimationFrame(() => {
+          heart.style.transform = `translateY(-${window.innerHeight * 0.9}px) scale(${Math.random() * 0.5 + 1.0}) rotate(${Math.random() * 100 - 50}deg)`;
+          heart.style.opacity = '0';
+        });
+
+        setTimeout(() => heart.remove(), 4000);
+      }, i * 150);
+    }
+  };
   const triggerSurprise = (type: 'confetti' | 'hearts' | 'compliment' | 'joke') => {
     let msgText = '';
 
@@ -1293,52 +1417,8 @@ const joinRoom = (id: string, nickname: string) => {
     sendDataChannelMsg('surprise', { surpriseType: type, message: msgText });
   };
 
-  const handleSurpriseReception = (type: string, message: string) => {
-    if (type === 'confetti') {
-      confetti({
-        particleCount: 150,
-        spread: 80,
-        origin: { y: 0.6 }
-      });
-    } else if (type === 'hearts') {
-      triggerFloatingHearts();
-    }
 
-    setSurpriseNotification({
-      message: `Your bestie ${message}`,
-      type
-    });
-    setTimeout(() => setSurpriseNotification(null), 5000);
-  };
 
-  const triggerFloatingHearts = () => {
-    const container = document.getElementById('floating-reactions-container');
-    if (!container) return;
-
-    for (let i = 0; i < 20; i++) {
-      setTimeout(() => {
-        const heart = document.createElement('div');
-        heart.innerText = ['❤️', '💖', '💝', '✨'][Math.floor(Math.random() * 4)];
-        heart.style.position = 'absolute';
-        heart.style.bottom = '-50px';
-        heart.style.left = `${Math.random() * 90}%`;
-        heart.style.fontSize = `${Math.random() * 2 + 1.5}rem`;
-        heart.style.pointerEvents = 'none';
-        heart.style.zIndex = '9999';
-        heart.style.opacity = '1';
-        heart.style.transition = `all ${Math.random() * 2 + 2}s cubic-bezier(0.1, 0.8, 0.3, 1)`;
-
-        container.appendChild(heart);
-
-        requestAnimationFrame(() => {
-          heart.style.transform = `translateY(-${window.innerHeight * 0.9}px) scale(${Math.random() * 0.5 + 1.0}) rotate(${Math.random() * 100 - 50}deg)`;
-          heart.style.opacity = '0';
-        });
-
-        setTimeout(() => heart.remove(), 4000);
-      }, i * 150);
-    }
-  };
 
   return (
     <WebRTCContext.Provider
@@ -1409,15 +1489,17 @@ const joinRoom = (id: string, nickname: string) => {
       <div id="floating-reactions-container" className="fixed inset-0 pointer-events-none overflow-hidden z-[9999]" />
     </WebRTCContext.Provider>
   );
-};
+}
 
 export const useWebRTC = () => {
-  const context = useContext(WebRTCContext);
-  if (context === undefined) {
-    throw new Error('useWebRTC must be used within a WebRTCProvider');
-  }
-  return context;
+    const context = useContext(WebRTCContext);
+
+    if (!context) {
+        throw new Error(
+            "useWebRTC must be used within a WebRTCProvider"
+        );
+    }
+
+    return context;
 };
-
-
 

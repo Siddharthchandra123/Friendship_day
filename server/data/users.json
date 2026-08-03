@@ -8,5 +8,15 @@
     "email": null,
     "theme": "aurora",
     "createdAt": "2026-08-02T08:57:23.484Z"
+  },
+  {
+    "id": "usr_7c85c6428196",
+    "username": "siddharth",
+    "nickname": "siddharth",
+    "passwordHash": "$2b$10$vVmv0DsXilZ7W9Qkz3YCY.SOQKdvBsoVlZv8TLs43uPnUK/d/iSFO",
+    "avatar": null,
+    "email": null,
+    "theme": "aurora",
+    "createdAt": "2026-08-03T08:42:35.978Z"
   }
 ]

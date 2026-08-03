@@ -20,5 +20,67 @@
     },
     "ip": "::1",
     "createdAt": "2026-08-02T08:57:46.268Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "siddharth",
+    "roomId": "CUE6YTF7",
+    "details": {
+      "socketId": "sQswd60h5mwr8vZQAAAB"
+    },
+    "ip": "::ffff:127.0.0.1",
+    "createdAt": "2026-08-03T08:42:44.789Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "siddharth",
+    "roomId": "CUE6YTF7",
+    "details": {
+      "socketId": "LIatBBC2PjmmsX5uAAAD"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-03T08:42:50.955Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "siddharth",
+    "roomId": "CUE6YTF7",
+    "details": {
+      "socketId": "LIatBBC2PjmmsX5uAAAD"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-03T08:42:51.027Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "chandrasiddharth975@gmail.com",
+    "roomId": "CUE6YTF7",
+    "details": {
+      "socketId": "u9VmFKqJdGaXfEwcAAAF"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-03T08:43:15.554Z"
+  },
+  {
+    "eventType": "ROOM_MEMORY_ADD",
+    "userId": null,
+    "username": "siddharth",
+    "roomId": "CUE6YTF7",
+    "details": {
+      "item": {
+        "id": "1785746661577",
+        "type": "text",
+        "content": "hi",
+        "title": "hi",
+        "author": "me",
+        "timestamp": "Aug 3"
+      }
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-03T08:44:21.584Z"
   }
 ]
