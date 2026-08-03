@@ -415,14 +415,23 @@ pendingCandidatesRef.current = [];
   // Initialize socket connection on component mount
 
   useEffect(() => {
-    const room = localStorage.getItem("lastRoom");
+    const navigation = performance.getEntriesByType(
+        "navigation"
+    )[0] as PerformanceNavigationTiming;
+
+    const isReload = navigation?.type === "reload";
+
+    if (!isReload) {
+        return;
+    }
+
+    const room = sessionStorage.getItem("lastRoom");
     const nickname = localStorage.getItem("fv_nickname");
 
-    if (!room || !nickname) return;
-
-    console.log("Auto rejoining room:", room);
-
-    joinRoom(room, nickname);
+    if (room && nickname) {
+        console.log("Rejoining after refresh...");
+        joinRoom(room, nickname);
+    }
 }, []);
 
 
@@ -878,7 +887,7 @@ const createRoom = (nickname: string): string => {
 
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
-    localStorage.setItem("lastRoom", newRoomId);
+    sessionStorage.setItem("lastRoom", newRoomId);
     
     if (!socket.connected) {
         socket.connect();
@@ -908,7 +917,7 @@ const joinRoom = (id: string, nickname: string) => {
 
     setRoomId(upperId);
     roomIdRef.current = upperId;
-    localStorage.setItem("lastRoom", upperId);
+    sessionStorage.setItem("lastRoom", upperId);
     if (!socket.connected) {
         socket.connect();
     }

@@ -98,7 +98,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     console.log(`Auto joining ${cleanRoom}`);
 
     joinRoom(cleanRoom, user.nickname);
-  }, [joinRoom, user]);
+
+    // Remove ?room= from the URL after joining
+    window.history.replaceState({}, "", window.location.pathname);
+
+}, [joinRoom, user]);
 
   /* -------------------------------------------------------------------------- */
   /*                             Quote Animation                                */
