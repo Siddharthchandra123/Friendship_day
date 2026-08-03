@@ -170,7 +170,7 @@ useEffect(() => {
 }, []);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [peerId, setPeerId] = useState<string | null>(null);
+  const [peerId] = useState<string | null>(null);
   const [peerDisconnected, setPeerDisconnected] = useState(false);
   const [roomFullError, setRoomFullError] = useState(false);
 
@@ -778,36 +778,6 @@ console.log("Waiting for existing peer to initiate WebRTC");
       });
     });
     
-  const triggerFloatingHearts = () => {
-    const container = document.getElementById('floating-reactions-container');
-    if (!container) return;
-
-    for (let i = 0; i < 20; i++) {
-      setTimeout(() => {
-        const heart = document.createElement('div');
-        heart.innerText = ['❤️', '💖', '💝', '✨'][Math.floor(Math.random() * 4)];
-        heart.style.position = 'absolute';
-        heart.style.bottom = '-50px';
-        heart.style.left = `${Math.random() * 90}%`;
-        heart.style.fontSize = `${Math.random() * 2 + 1.5}rem`;
-        heart.style.pointerEvents = 'none';
-        heart.style.zIndex = '9999';
-        heart.style.opacity = '1';
-        heart.style.transition = `all ${Math.random() * 2 + 2}s cubic-bezier(0.1, 0.8, 0.3, 1)`;
-
-        container.appendChild(heart);
-
-        requestAnimationFrame(() => {
-          heart.style.transform = `translateY(-${window.innerHeight * 0.9}px) scale(${Math.random() * 0.5 + 1.0}) rotate(${Math.random() * 100 - 50}deg)`;
-          heart.style.opacity = '0';
-        });
-
-        setTimeout(() => heart.remove(), 4000);
-      }, i * 150);
-    }
-  };
-    
-
     return () => {
     socket.off("joined");
     socket.off("peer-joined");
