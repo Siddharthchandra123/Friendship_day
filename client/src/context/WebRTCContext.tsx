@@ -927,6 +927,8 @@ const joinRoom = (id: string, nickname: string) => {
         .catch(console.error);
 };
   const leaveRoom = () => {
+    localStorage.removeItem("lastRoom");
+    sessionStorage.removeItem("lastRoom");
     socket.emit("leave-room", {
       roomId: roomIdRef.current,
     });
