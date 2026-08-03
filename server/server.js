@@ -472,7 +472,7 @@ io.on('connection', (socket) => {
 
   let clientNickname = 'anonymous';
 
-  socket.on('join-room', async ({ roomId, nickname }) => {
+  socket.on('join-room', async ({ roomId, nickname, clientId }) => {
     clientNickname = nickname || 'anonymous';
     console.log(`User ${socket.id} (${clientNickname}) requesting to join room: ${roomId}`);
     
@@ -499,7 +499,36 @@ io.on('connection', (socket) => {
       .map(([id, info]) => ({ id, nickname: info.nickname || 'Friend' }));
 
     // Join the room
-    clients.set(socket.id, { id: socket.id, nickname: clientNickname });
+    // Check if this browser already exists (refresh/reconnect)
+let existingSocketId = null;
+
+for (const [id, info] of clients.entries()) {
+    if (info.clientId === clientId) {
+        existingSocketId = id;
+        break;
+    }
+}
+
+if (existingSocketId) {
+    console.log("Refreshing existing connection");
+
+    clients.delete(existingSocketId);
+
+    clients.set(socket.id, {
+        id: socket.id,
+        nickname: clientNickname,
+        clientId
+    });
+
+} else {
+
+    clients.set(socket.id, {
+        id: socket.id,
+        nickname: clientNickname,
+        clientId
+    });
+
+}
     console.log("=================================");
     console.log("User joined");
 
@@ -659,9 +688,45 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-  });
+  socket.on("disconnect", () => {
+    const disconnectedSocketId = socket.id;
+
+    setTimeout(() => {
+        // If the old socket somehow reappeared, do nothing
+        if (io.sockets.sockets.has(disconnectedSocketId)) {
+            return;
+        }
+
+        // Find this user in all rooms
+        for (const [roomId, clients] of rooms.entries()) {
+
+            const user = clients.get(disconnectedSocketId);
+
+            if (!user) continue;
+
+            // Has the same browser already reconnected?
+            const reconnected = Array.from(clients.values()).some(
+                c =>
+                    c.clientId === user.clientId &&
+                    c.id !== disconnectedSocketId
+            );
+
+            if (reconnected) {
+                console.log(
+                    `${user.nickname} reconnected to room ${roomId}`
+                );
+                return;
+            }
+
+            console.log(
+                `${user.nickname} permanently disconnected`
+            );
+
+            removeUser(disconnectedSocketId);
+            return;
+        }
+    }, 10000);
+});
 });
 
 function handleUserLeave(socket, roomId) {

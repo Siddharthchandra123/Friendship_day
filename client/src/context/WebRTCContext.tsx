@@ -161,6 +161,13 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   
   const [roomId, setRoomId] = useState('');
   const roomIdRef = useRef('');
+  const clientIdRef = useRef(
+    localStorage.getItem("clientId") || crypto.randomUUID()
+);
+
+useEffect(() => {
+    localStorage.setItem("clientId", clientIdRef.current);
+}, []);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [peerId, setPeerId] = useState<string | null>(null);
@@ -406,6 +413,19 @@ pendingCandidatesRef.current = [];
     }
   };   
   // Initialize socket connection on component mount
+
+  useEffect(() => {
+    const room = localStorage.getItem("lastRoom");
+    const nickname = localStorage.getItem("fv_nickname");
+
+    if (!room || !nickname) return;
+
+    console.log("Auto rejoining room:", room);
+
+    joinRoom(room, nickname);
+}, []);
+
+
   useEffect(() => {
 
 
@@ -848,6 +868,8 @@ socket.on("reaction", ({ emoji }) => {
     }
     return result;
   };
+
+  
 const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
 
@@ -856,7 +878,8 @@ const createRoom = (nickname: string): string => {
 
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
-
+    localStorage.setItem("lastRoom", newRoomId);
+    
     if (!socket.connected) {
         socket.connect();
     }
@@ -867,9 +890,10 @@ const createRoom = (nickname: string): string => {
             setLocalStream(stream);
 
             socket.emit("join-room", {
-                roomId: newRoomId,
-                nickname,
-            });
+    roomId: newRoomId,
+    nickname,
+    clientId: clientIdRef.current,
+});
         })
         .catch(console.error);
 
@@ -884,7 +908,7 @@ const joinRoom = (id: string, nickname: string) => {
 
     setRoomId(upperId);
     roomIdRef.current = upperId;
-
+    localStorage.setItem("lastRoom", upperId);
     if (!socket.connected) {
         socket.connect();
     }
@@ -895,9 +919,10 @@ const joinRoom = (id: string, nickname: string) => {
             setLocalStream(stream);
 
             socket.emit("join-room", {
-                roomId: upperId,
-                nickname,
-            });
+    roomId: upperId,
+    nickname,
+    clientId: clientIdRef.current,
+});
         })
         .catch(console.error);
 };
