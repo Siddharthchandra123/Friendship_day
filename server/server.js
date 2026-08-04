@@ -586,13 +586,20 @@ if (existingSocketId) {
     socket.to(targetPeerId).emit('webrtc-candidate', { peerId: socket.id, candidate });
   });
 
-  socket.on('reaction', async ({ roomId, emoji }) => {
-    if (producer) {
-      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id, socket);
-    } else {
-      await publishEvent(roomId, 'reaction', { emoji, actorName: clientNickname || 'Someone' }, socket.id, socket);
-    }
-  });
+  socket.on("reaction", ({ roomId, emoji }) => {
+    console.log("😀 REACTION RECEIVED");
+    console.log("Room:", roomId);
+    console.log("Emoji:", emoji);
+
+    const clients = io.sockets.adapter.rooms.get(roomId);
+    console.log("Clients:", clients);
+
+    socket.to(roomId).emit("reaction", {
+        emoji,
+    });
+
+    console.log("😀 REACTION BROADCAST");
+});
 
   socket.on('draw-stroke', ({ roomId, stroke }) => {
     socket.to(roomId).emit('draw-stroke', { stroke });
