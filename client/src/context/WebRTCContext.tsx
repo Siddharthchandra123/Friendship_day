@@ -1233,6 +1233,7 @@ const toggleVideo = () => {
       timestamp: new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }),
     };
     setMemories(prev => [...prev, item]);
+    console.log("📤 MEMORY SENT", item);
     sendDataChannelMsg('memory-add', { item });
   };
 

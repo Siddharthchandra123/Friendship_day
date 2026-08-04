@@ -606,14 +606,18 @@ if (existingSocketId) {
     socket.to(roomId).emit('draw-undo', { remainingStrokes });
   });
 
-  socket.on('memory-add', async ({ roomId, item }) => {
-    logAuditEvent('ROOM_MEMORY_ADD', null, clientNickname, roomId, { item }, getSocketIp(socket));
-    if (producer) {
-      await publishEvent(roomId, 'memory-add', item, socket.id, socket);
-    } else {
-      await publishEvent(roomId, 'memory-add', item, socket.id, socket);
-    }
-  });
+socket.on("memory-add", ({ roomId, item }) => {
+    console.log("📦 MEMORY RECEIVED");
+    console.log("Room:", roomId);
+    console.log("Sender:", socket.id);
+
+    const clients = io.sockets.adapter.rooms.get(roomId);
+    console.log("Clients in room:", clients);
+
+    socket.to(roomId).emit("memory-add", { item });
+
+    console.log("📦 MEMORY BROADCAST");
+});
 
   socket.on('memory-delete', async ({ roomId, id }) => {
     logAuditEvent('ROOM_MEMORY_DELETE', null, clientNickname, roomId, { id }, getSocketIp(socket));
