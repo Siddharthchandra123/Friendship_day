@@ -646,9 +646,11 @@ console.log("Waiting for existing peer to initiate WebRTC");
       setPeerTyping(isTyping);
     });
 
-    socket.on('reaction', ({ emoji }) => {
-      triggerFloatingReaction(emoji);
-    });
+    socket.on("reaction", ({ emoji }) => {
+    console.log("❤️ REACTION RECEIVED", emoji);
+
+    triggerFloatingReaction(emoji);
+});
 
     socket.on('draw-stroke', ({ stroke }) => {
       setCanvasStrokes(prev => {
