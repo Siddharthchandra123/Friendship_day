@@ -558,14 +558,17 @@ if (existingSocketId) {
   });
 
   // Relays for data sync (Events either go to Kafka or get relayed immediately on local fallback)
-  socket.on('chat', async ({ roomId, message }) => {
-    logAuditEvent('ROOM_CHAT', null, clientNickname, roomId, { message }, getSocketIp(socket));
-    if (producer) {
-      await publishEvent(roomId, 'chat', message, socket.id, socket);
-    } else {
-      await publishEvent(roomId, 'chat', message, socket.id, socket);
-    }
-  });
+  socket.on("chat", ({ roomId, message }) => {
+    console.log("========== CHAT ==========");
+    console.log("Room:", roomId);
+    console.log("From:", socket.id);
+    console.log(message);
+
+    socket.to(roomId).emit("chat", {
+        senderId: socket.id,
+        message,
+    });
+});
 
   socket.on('typing', ({ roomId, isTyping }) => {
     socket.to(roomId).emit('typing', { senderId: socket.id, isTyping });

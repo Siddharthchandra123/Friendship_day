@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { WebRTCProvider, useWebRTC } from './context/WebRTCContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { LandingPage } from './components/LandingPage';
+import LandingPage1  from './components/LandingPage1';
+import {LandingPage}  from './components/LandingPage';
 import { CelebrationRoom } from './components/CelebrationRoom';
 import ProfilePage from "./components/ProfilePage";
 import { CustomCursor } from './components/CustomCursor';

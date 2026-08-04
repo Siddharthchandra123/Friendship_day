@@ -82,5 +82,16 @@
     },
     "ip": "::1",
     "createdAt": "2026-08-03T08:44:21.584Z"
+  },
+  {
+    "eventType": "ROOM_JOIN",
+    "userId": null,
+    "username": "siddharth",
+    "roomId": "2TE5LGW9",
+    "details": {
+      "socketId": "LUqfXKVntz1tjCOxAAAP"
+    },
+    "ip": "::1",
+    "createdAt": "2026-08-03T08:52:23.066Z"
   }
 ]
