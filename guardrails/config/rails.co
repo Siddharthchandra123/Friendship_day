@@ -1,0 +1,3 @@
+flow main
+  user said something
+  bot say "Hello! I am protected by NeMo Guardrails."
