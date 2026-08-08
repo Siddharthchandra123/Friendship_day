@@ -487,21 +487,21 @@ io.on('connection', (socket) => {
       rooms.set(roomId, clients);
     }
 
-    if (clients.size >= 5) {
-      console.log(`Room ${roomId} is full. User ${socket.id} rejected.`);
-      socket.emit('room-full');
-      return;
+    let existingSocketId = null;
+
+    for (const [id, info] of clients.entries()) {
+        if (info.clientId === clientId) {
+            existingSocketId = id;
+            break;
+        }
     }
 
-    // Get existing other users in the room
-    const otherUsers = Array.from(clients.entries())
-      .filter(([id]) => id !== socket.id)
-      .map(([id, info]) => ({ id, nickname: info.nickname || 'Friend' }));
+    if (!existingSocketId && clients.size >= 5) {
+        socket.emit("room-full");
+        return;
+    }
 
-    // Join the room
-    // Check if this browser already exists (refresh/reconnect)
-let existingSocketId = null;
-
+    // Join the roomS
 for (const [id, info] of clients.entries()) {
     if (info.clientId === clientId) {
         existingSocketId = id;
@@ -514,12 +514,18 @@ if (existingSocketId) {
 
     clients.delete(existingSocketId);
 
-    clients.set(socket.id, {
+    const oldSocket = io.sockets.sockets.get(existingSocketId);
+
+    if (oldSocket) {
+        oldSocket.leave(roomId);
+    }
+clients.set(socket.id, {
         id: socket.id,
         nickname: clientNickname,
         clientId
     });
 
+    socket.join(roomId);
 } else {
 
     clients.set(socket.id, {
@@ -527,6 +533,8 @@ if (existingSocketId) {
         nickname: clientNickname,
         clientId
     });
+
+    socket.join(roomId);
 
 }
     console.log("=================================");
@@ -541,15 +549,15 @@ if (existingSocketId) {
     }
 
     console.log("Room size:", clients.size);
-    console.log("=================================");
-    socket.join(roomId);
     
     console.log(`User ${socket.id} successfully joined room ${roomId}. Room size: ${clients.size}`);
     logAuditEvent('ROOM_JOIN', null, clientNickname, roomId, { socketId: socket.id }, getSocketIp(socket));
     
     // Fetch room history from local cache (which is populated from Kafka logs)
     const history = getLocalRoomState(roomId);
-
+    const otherUsers = Array.from(clients.entries())
+      .filter(([id]) => id !== socket.id)
+      .map(([id, info]) => ({ id, nickname: info.nickname || 'Friend' }));
     // Notify the user they joined successfully and provide existing peer list & history
     socket.emit('joined', { roomId, otherUsers, history });
 
@@ -558,16 +566,26 @@ if (existingSocketId) {
   });
 
   // Relays for data sync (Events either go to Kafka or get relayed immediately on local fallback)
-  socket.on("chat", ({ roomId, message }) => {
-    console.log("========== CHAT ==========");
-    console.log("Room:", roomId);
-    console.log("From:", socket.id);
-    console.log(message);
+  socket.on("chat", async ({ roomId, message }) => {
+
+    const result = await moderateText(message.text);
+
+    if (!result.allowed) {
+
+        socket.emit("chat-blocked", {
+            reason: result.reason,
+        });
+
+        return;
+    }
+
+    message.text = result.sanitizedText;
 
     socket.to(roomId).emit("chat", {
         senderId: socket.id,
         message,
     });
+});
 });
 
   socket.on('typing', ({ roomId, isTyping }) => {
@@ -613,17 +631,27 @@ if (existingSocketId) {
     socket.to(roomId).emit('draw-undo', { remainingStrokes });
   });
 
-socket.on("memory-add", ({ roomId, item }) => {
-    console.log("📦 MEMORY RECEIVED");
-    console.log("Room:", roomId);
-    console.log("Sender:", socket.id);
+socket.on("memory-add", async ({ roomId, item }) => {
 
-    const clients = io.sockets.adapter.rooms.get(roomId);
-    console.log("Clients in room:", clients);
+    if (item.type === "text") {
 
-    socket.to(roomId).emit("memory-add", { item });
+        const result = await moderateText(item.content);
 
-    console.log("📦 MEMORY BROADCAST");
+        if (!result.allowed) {
+
+            socket.emit("memory-blocked", {
+                reason: result.reason,
+            });
+
+            return;
+        }
+
+        item.content = result.sanitizedText;
+    }
+
+    socket.to(roomId).emit("memory-add", {
+        item,
+    });
 });
 
   socket.on('memory-delete', async ({ roomId, id }) => {
@@ -689,18 +717,17 @@ socket.on("memory-add", ({ roomId, item }) => {
     socket.leave(roomId);
   });
 
-  socket.on("disconnecting", () => {
+socket.on("disconnecting", () => {
     console.log(`Socket ${socket.id} disconnecting...`);
 
     for (const roomId of socket.rooms) {
-      // Ignore the socket's own private room
-      if (roomId === socket.id) continue;
+        if (roomId === socket.id) continue;
 
-      if (rooms.has(roomId)) {
-        handleUserLeave(socket, roomId);
-      }
+        if (rooms.has(roomId)) {
+            handleUserLeave(socket, roomId);
+        }
     }
-  });
+});
 
   socket.on("disconnect", () => {
     const disconnectedSocketId = socket.id;
@@ -740,7 +767,6 @@ socket.on("memory-add", ({ roomId, item }) => {
             return;
         }
     }, 10000);
-});
 });
 
 function handleUserLeave(socket, roomId) {

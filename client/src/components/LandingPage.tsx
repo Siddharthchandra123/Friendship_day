@@ -1,15 +1,25 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Heart,
+  ArrowRight,
+  BadgeCheck,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  Lock,
+  MessageSquare,
   Play,
-  Volume2,
-  VolumeX,
+  Shield,
   Sparkles,
   Send,
+  ShieldCheck,
+  Star,
+  Users,
+  Video,
+  Volume2,
+  VolumeX,
   X,
   User as UserIcon,
-  Palette,
 } from "lucide-react";
 
 import { useWebRTC } from "../context/WebRTCContext";
@@ -17,14 +27,47 @@ import { useAuth } from "../context/AuthContext";
 import { useMedia } from "../context/MediaContext";
 import { ambientSynth } from "../utils/WebAudioSynth";
 
-const quotes = [
-  "Distance means nothing when friendship means everything. ❤️",
-  "A real friend is one who walks in when the rest of the world walks out. 🌟",
-  "Friendship is the only cement that will ever hold the world together. 🤝",
-  "A single rose can be my garden... a single friend, my world. 🌹",
-  "Friends are the siblings God never gave us. ✨",
-  "There is nothing on this earth more to be prized than true friendship. 🏆",
-  "Good friends are like stars. You don't always see them, but you know they're always there. 💫",
+const spotlightItems = [
+  {
+    title: "Private room orchestration",
+    description: "Create secure spaces with one-click room codes and live presence indicators.",
+    icon: ShieldCheck,
+  },
+  {
+    title: "Real-time collaboration",
+    description: "Keep chat, video, whiteboard, and activities in sync across every participant.",
+    icon: MessageSquare,
+  },
+  {
+    title: "Rich celebration toolkit",
+    description: "Launch memories, games, reactions, and themed moments from one unified entry point.",
+    icon: Sparkles,
+  },
+];
+
+const trustStats = [
+  { value: "99.9%", label: "session continuity" },
+  { value: "6+", label: "interactive modules" },
+  { value: "< 2s", label: "room handoff" },
+  { value: "24/7", label: "availability" },
+];
+
+const featureCards = [
+  {
+    title: "Enterprise-grade room access",
+    text: "Create or join a room with clear access control, responsive entry states, and clean handoff behavior.",
+    icon: Lock,
+  },
+  {
+    title: "Synchronized live experience",
+    text: "Chat, drawing, memory walls, and games stay aligned so every participant sees the same celebration.",
+    icon: Video,
+  },
+  {
+    title: "Operational clarity",
+    text: "A focused landing page with direct call-to-action paths, status cues, and high-signal information.",
+    icon: Shield,
+  },
 ];
 
 interface LandingPageProps {
@@ -105,19 +148,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 }, [joinRoom, user]);
 
   /* -------------------------------------------------------------------------- */
-  /*                             Quote Animation                                */
+  /*                             Spotlight Rotation                              */
   /* -------------------------------------------------------------------------- */
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setCurrentQuoteIndex((prev) => (prev + 1) % quotes.length);
+      setCurrentQuoteIndex((prev) => (prev + 1) % spotlightItems.length);
     }, 4500);
 
     return () => window.clearInterval(timer);
   }, []);
 
   /* -------------------------------------------------------------------------- */
-  /*                              Music Controls                                */
+  /*                              Room Actions                                  */
   /* -------------------------------------------------------------------------- */
 
   const handleToggleAudio = useCallback(() => {
@@ -130,19 +173,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     }
   }, [isAudioPlaying]);
 
-  /* -------------------------------------------------------------------------- */
-  /*                              Room Creation                                 */
-  /* -------------------------------------------------------------------------- */
-
   const handleCreateRoom = useCallback(() => {
     if (!user) return;
 
     createRoom(user.nickname);
   }, [createRoom, user]);
-
-  /* -------------------------------------------------------------------------- */
-  /*                                Join Room                                   */
-  /* -------------------------------------------------------------------------- */
 
   const handleJoin = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
@@ -161,471 +196,238 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     [joinRoom, roomCodeInput, user]
   );
 
-  /* -------------------------------------------------------------------------- */
   /*                            JSX CONTINUES BELOW                             */
-  /* -------------------------------------------------------------------------- */
-return (
-  <div className="relative min-h-screen w-full overflow-y-auto overflow-x-hidden select-none">
 
-    {/* ===================== Animated Aurora Background ===================== */}
+  return (
+  <div className="relative min-h-screen w-full overflow-hidden select-none bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_32%),radial-gradient(circle_at_right,rgba(168,85,247,0.18),transparent_30%),linear-gradient(180deg,#020617_0%,#020617_45%,#0b1120_100%)] text-white">
 
-    <div className="absolute inset-0 -z-10 overflow-hidden">
-
-      <motion.div
-        className="aurora-blob absolute w-[450px] h-[450px] rounded-full blur-3xl opacity-30"
-        style={{ backgroundColor: "var(--aurora-1)" }}
-        animate={{
-          x: [0, 80, -50, 0],
-          y: [0, -60, 40, 0],
-          scale: [1, 1.15, 0.9, 1],
-        }}
-        transition={{
-          duration: 22,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-
-      <motion.div
-        className="aurora-blob absolute right-0 bottom-0 w-[520px] h-[520px] rounded-full blur-3xl opacity-25"
-        style={{ backgroundColor: "var(--aurora-2)" }}
-        animate={{
-          x: [0, -80, 60, 0],
-          y: [0, 80, -50, 0],
-          scale: [1, .9, 1.1, 1],
-        }}
-        transition={{
-          duration: 25,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-
-      <motion.div
-        className="aurora-blob absolute left-1/3 top-1/3 w-[350px] h-[350px] rounded-full blur-3xl opacity-20"
-        style={{ backgroundColor: "var(--aurora-3)" }}
-        animate={{
-          x: [0, 50, -40, 0],
-          y: [0, 40, -60, 0],
-          scale: [1, 1.05, .95, 1],
-        }}
-        transition={{
-          duration: 18,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
+    <div className="absolute inset-0 pointer-events-none opacity-60">
+      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/5 to-transparent" />
+      <div className="absolute left-0 top-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="absolute right-0 top-40 h-80 w-80 rounded-full bg-fuchsia-500/10 blur-3xl" />
+      <div className="absolute bottom-0 left-1/4 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
     </div>
 
-    {/* ===================== Floating Sparkles ===================== */}
+    <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-10 pt-4 sm:px-6 lg:px-8">
 
-    <div className="absolute inset-0 pointer-events-none">
-
-      {Array.from({ length: 25 }).map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute text-yellow-300/40"
-          style={{
-            top: `${Math.random() * 100}%`,
-            left: `${Math.random() * 100}%`,
-          }}
-          animate={{
-            opacity: [.15, .8, .15],
-            scale: [.7, 1.2, .7],
-            y: [0, -25, 0],
-          }}
-          transition={{
-            duration: 5 + Math.random() * 5,
-            repeat: Infinity,
-            delay: Math.random() * 5,
-          }}
-        >
-          <Sparkles size={12 + Math.random() * 10} />
-        </motion.div>
-      ))}
-
-    </div>
-
-    {/* ===================== Top Buttons ===================== */}
-
-    <div className="fixed top-6 right-6 flex gap-3 z-50">
-
-      <motion.button
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: .95 }}
-        onClick={onGoToProfile}
-        className="glass-panel-light rounded-full p-4 border border-white/20"
-      >
-        {user?.avatar ? (
-          <img
-            src={user.avatar}
-            className="w-6 h-6 rounded-full object-cover"
-            alt="Avatar"
-          />
-        ) : (
-          <UserIcon className="text-purple-400" size={22} />
-        )}
-      </motion.button>
-
-      <motion.button
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: .95 }}
-        onClick={handleToggleAudio}
-        className="glass-panel-light rounded-full p-4 border border-white/20"
-      >
-        {isAudioPlaying ? (
-          <Volume2
-            className="text-purple-400 animate-pulse"
-            size={22}
-          />
-        ) : (
-          <VolumeX
-            className="text-slate-400"
-            size={22}
-          />
-        )}
-      </motion.button>
-
-    </div>
-
-    {/* ===================== Hero Section ===================== */}
-
-    <section className="min-h-screen flex flex-col items-center justify-center px-6 relative z-10">
-
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: .8 }}
-        className="mb-6"
-      >
-
-        <div className="glass-panel-light rounded-full px-5 py-2 flex items-center gap-2 border border-purple-500/20">
-
-          <Heart
-            size={14}
-            className="fill-purple-500 text-purple-500 animate-pulse"
-          />
-
-          <span className="text-xs uppercase tracking-widest text-purple-300">
-
-            Welcome {user?.nickname ?? "Friend"}
-
-          </span>
-
-        </div>
-
-      </motion.div>
-
-      <motion.h1
-        initial={{ opacity: 0, scale: .92 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: .9 }}
-        className="text-center text-6xl md:text-8xl font-black font-display bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 bg-clip-text text-transparent"
-      >
-        Happy Friendship
-        <br />
-        Day ❤️
-      </motion.h1>
-
-      {/* Quote */}
-
-      <div className="mt-8 h-20 flex items-center justify-center max-w-2xl">
-
-        <AnimatePresence mode="wait">
-
-          <motion.p
-            key={currentQuoteIndex}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: .45 }}
-            className="italic text-center text-lg md:text-2xl text-purple-100"
-          >
-            "{quotes[currentQuoteIndex]}"
-          </motion.p>
-
-        </AnimatePresence>
-
-      </div>
-
-      {/* Buttons */}
-
-      <div className="mt-10 flex flex-col sm:flex-row gap-6 w-full max-w-md">
-
-        <button
-          onClick={handleCreateRoom}
-          className="btn-primary flex-1 py-4 flex items-center justify-center gap-3 text-lg font-bold"
-        >
-          <Play
-            size={20}
-            className="fill-white"
-          />
-          Create Celebration
-        </button>
-
-        <button
-          onClick={() => setShowJoinModal(true)}
-          className="btn-secondary flex-1 py-4 flex items-center justify-center gap-2 text-lg font-bold"
-        >
-          <Send size={20} />
-          Join Celebration
-        </button>
-
-      </div>
-
-      {/* Scroll Hint */}
-
-      <motion.div
-        animate={{ y: [0, 10, 0] }}
-        transition={{
-          duration: 2,
-          repeat: Infinity,
-        }}
-        className="absolute bottom-8 flex flex-col items-center gap-2 cursor-pointer opacity-60"
-        onClick={() =>
-          document
-            .getElementById("feature-showcase")
-            ?.scrollIntoView({
-              behavior: "smooth",
-            })
-        }
-      >
-
-        <span className="text-xs tracking-widest text-slate-400">
-          SCROLL FOR FEATURES
-        </span>
-
-        <div className="w-[2px] h-6 bg-slate-500 rounded-full" />
-
-      </motion.div>
-
-    </section>
-          {/* ===================== Floating Hearts Background ===================== */}
-
-      <div className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none overflow-hidden -z-0">
-
-        {Array.from({ length: 6 }).map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute text-pink-500/20"
-            style={{
-              bottom: "-20px",
-              left: `${15 + i * 15}%`,
-              fontSize: `${Math.random() * 2 + 1}rem`,
-            }}
-            animate={{
-              y: -260,
-              x: [0, Math.random() * 50 - 25, 0],
-              opacity: [0, 0.7, 0],
-            }}
-            transition={{
-              duration: 8 + Math.random() * 5,
-              repeat: Infinity,
-              delay: i * 0.6,
-              ease: "easeInOut",
-            }}
-          >
-            ❤️
-          </motion.div>
-        ))}
-
-      </div>
-
-      {/* ===================== Feature Showcase ===================== */}
-
-      <section
-        id="feature-showcase"
-        className="relative z-10 max-w-6xl mx-auto px-6 py-24 flex flex-col items-center"
-      >
-
-        <div className="text-center mb-16">
-
-          <h2 className="text-4xl md:text-5xl font-black font-display bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 bg-clip-text text-transparent">
-
-            Everything You Need To Celebrate
-
-          </h2>
-
-          <p className="mt-4 max-w-2xl mx-auto text-slate-400 leading-relaxed">
-
-            Private, secure and beautifully crafted experiences that make
-            celebrating Friendship Day unforgettable no matter where your
-            friends are.
-
-          </p>
-
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full">
-
-          {/* ================= Card 1 ================= */}
-
-          <motion.div
-            whileHover={{
-              y: -8,
-              scale: 1.02,
-            }}
-            transition={{
-              duration: .25,
-            }}
-            className="glass-card rounded-3xl p-7 border border-white/10 shadow-xl"
-          >
-
-            <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-5">
-
-              <Heart
-                size={28}
-                className="text-purple-400 fill-purple-500/20"
-              />
-
+      <header className="sticky top-4 z-30 mb-8 rounded-3xl border border-white/10 bg-slate-950/70 px-5 py-4 backdrop-blur-xl shadow-2xl shadow-black/20">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20">
+              <Sparkles size={22} />
             </div>
-
-            <h3 className="text-xl font-bold font-display text-white mb-3">
-
-              Private Video Rooms
-
-            </h3>
-
-            <p className="text-sm text-slate-400 leading-relaxed">
-
-              Create secure WebRTC powered celebration rooms with ultra-low
-              latency audio and video. Invite your best friends instantly using
-              a room code.
-
-            </p>
-
-          </motion.div>
-
-          {/* ================= Card 2 ================= */}
-
-          <motion.div
-            whileHover={{
-              y: -8,
-              scale: 1.02,
-            }}
-            transition={{
-              duration: .25,
-            }}
-            className="glass-card rounded-3xl p-7 border border-white/10 shadow-xl"
-          >
-
-            <div className="w-14 h-14 rounded-2xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center mb-5">
-
-              <Palette
-                size={28}
-                className="text-pink-400"
-              />
-
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                FriendVerse Platform
+              </div>
+              <h1 className="mt-1 text-lg font-semibold text-white sm:text-xl">
+                Enterprise Celebration Entry
+              </h1>
             </div>
-
-            <h3 className="text-xl font-bold font-display text-white mb-3">
-
-              Shared Whiteboard
-
-            </h3>
-
-            <p className="text-sm text-slate-400 leading-relaxed">
-
-              Draw together in real time with synchronized strokes, collaborative
-              sketching and multiplayer creativity powered through WebSockets.
-
-            </p>
-
-          </motion.div>
-
-          {/* ================= Card 3 ================= */}
-
-          <motion.div
-            whileHover={{
-              y: -8,
-              scale: 1.02,
-            }}
-            transition={{
-              duration: .25,
-            }}
-            className="glass-card rounded-3xl p-7 border border-white/10 shadow-xl"
-          >
-
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-5">
-
-              <Sparkles
-                size={28}
-                className="text-amber-400"
-              />
-
-            </div>
-
-            <h3 className="text-xl font-bold font-display text-white mb-3">
-
-              Memories & Themes
-
-            </h3>
-
-            <p className="text-sm text-slate-400 leading-relaxed">
-
-              Capture beautiful memories, personalize your celebration using
-              premium themes and enjoy synchronized interactive experiences
-              designed exclusively for Friendship Day.
-
-            </p>
-
-          </motion.div>
-
-        </div>
-
-        {/* Bottom CTA */}
-
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 30,
-          }}
-          whileInView={{
-            opacity: 1,
-            y: 0,
-          }}
-          viewport={{
-            once: true,
-          }}
-          transition={{
-            duration: .6,
-          }}
-          className="mt-20 text-center"
-        >
-
-          <h3 className="text-3xl font-black font-display text-white mb-4">
-
-            Ready To Celebrate?
-
-          </h3>
-
-          <p className="text-slate-400 max-w-xl mx-auto mb-8">
-
-            Create your own private room or join your friend's celebration in
-            just a few seconds.
-
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-
-            <button
-              onClick={handleCreateRoom}
-              className="btn-primary px-8 py-4"
-            >
-              Create Celebration
-            </button>
-
-            <button
-              onClick={() => setShowJoinModal(true)}
-              className="btn-secondary px-8 py-4"
-            >
-              Join Celebration
-            </button>
-
           </div>
 
-        </motion.div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onGoToProfile}
+              className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 sm:flex"
+            >
+              {user?.avatar ? (
+                <img src={user.avatar} className="h-7 w-7 rounded-full object-cover" alt="Avatar" />
+              ) : (
+                <UserIcon size={16} />
+              )}
+              Profile
+            </button>
 
+            <button
+              onClick={handleToggleAudio}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+            >
+              {isAudioPlaying ? <Volume2 size={16} className="text-cyan-300" /> : <VolumeX size={16} className="text-slate-400" />}
+              Ambient
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-stretch">
+
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/60 p-6 shadow-2xl shadow-black/20 backdrop-blur-xl sm:p-8 lg:p-10">
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.04),transparent_30%,rgba(255,255,255,0.03))]" />
+          <div className="relative z-10 flex h-full flex-col justify-between gap-8">
+
+            <div className="space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-200">
+                <BadgeCheck size={14} />
+                Secure / Live / Collaborative
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-sm font-medium uppercase tracking-[0.35em] text-slate-400">
+                  Welcome {user?.nickname ?? "friend"}
+                </p>
+                <h2 className="max-w-3xl text-4xl font-semibold leading-tight text-white sm:text-5xl lg:text-7xl">
+                  Run your celebration like a polished digital experience.
+                </h2>
+                <p className="max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
+                  FriendVerse gives you a clean, enterprise-style entry point for private rooms, live chat, video, collaborative tools, and shared moments with the people who matter.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleCreateRoom}
+                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:translate-y-[-1px] hover:brightness-110"
+                >
+                  <Play size={16} className="fill-white" />
+                  Create Room
+                  <ArrowRight size={16} />
+                </button>
+
+                <button
+                  onClick={() => setShowJoinModal(true)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+                >
+                  <Send size={16} />
+                  Join Room
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {trustStats.map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-2xl font-semibold text-white">{stat.value}</div>
+                  <div className="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <aside className="flex flex-col gap-6">
+          <section className="rounded-[2rem] border border-white/10 bg-slate-950/55 p-5 shadow-2xl shadow-black/20 backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Platform overview</p>
+                <h3 className="mt-1 text-xl font-semibold text-white">Built for a clean launch experience</h3>
+              </div>
+              <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                Live
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {featureCards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <div key={card.title} className="flex gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-400/10 text-sky-300">
+                      <Icon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-white">{card.title}</h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-400">{card.text}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-slate-950/80 via-slate-950/65 to-slate-900/80 p-5 shadow-2xl shadow-black/20 backdrop-blur-xl">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              <Shield size={14} className="text-cyan-300" />
+              Current spotlight
+            </div>
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentQuoteIndex}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -14 }}
+                transition={{ duration: 0.35 }}
+                className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5"
+              >
+                {(() => {
+                  const CurrentIcon = spotlightItems[currentQuoteIndex].icon;
+                  return (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-fuchsia-500/10 text-fuchsia-300">
+                          <CurrentIcon size={20} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{spotlightItems[currentQuoteIndex].title}</p>
+                          <h4 className="mt-1 text-lg font-semibold text-white">Enterprise-ready entry design</h4>
+                        </div>
+                      </div>
+                      <p className="mt-4 text-sm leading-7 text-slate-300">
+                        {spotlightItems[currentQuoteIndex].description}
+                      </p>
+                    </>
+                  );
+                })()}
+              </motion.div>
+            </AnimatePresence>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Users size={16} className="text-sky-300" />
+                  Private sessions
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-400">Invite only, room-code driven, and designed for small trusted groups.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Clock3 size={16} className="text-emerald-300" />
+                  Fast access
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-400">Enter, connect, and start celebrating with a minimal setup path.</p>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+      </main>
+
+      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+        {[
+          {
+            title: "Step 1",
+            icon: CalendarDays,
+            text: "Create a new private room for your celebration session.",
+          },
+          {
+            title: "Step 2",
+            icon: CheckCircle2,
+            text: "Share the room code and bring your best friend in.",
+          },
+          {
+            title: "Step 3",
+            icon: Star,
+            text: "Use chat, video, memory wall, drawing, and games together.",
+          },
+        ].map((step) => {
+          const Icon = step.icon;
+          return (
+            <div key={step.title} className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-300">
+                  <Icon size={20} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{step.title}</p>
+                  <h3 className="mt-1 text-base font-semibold text-white">Quick launch workflow</h3>
+                </div>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-slate-400">{step.text}</p>
+            </div>
+          );
+        })}
       </section>
 
       {/* ===================== Join Room Modal ===================== */}
@@ -763,6 +565,7 @@ return (
       </AnimatePresence>
 
     </div>
+  </div>
   );
 };
 

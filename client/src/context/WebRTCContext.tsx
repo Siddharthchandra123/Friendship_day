@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { useSocket } from "./SocketContext.tsx";
 import confetti from 'canvas-confetti';
 import { useMedia } from "./MediaContext";
+const API_BASE = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:5000/api'
+  : 'https://friendverse-signaling.onrender.com/api';
 // Types for components
 export interface Message {
   id: string;
@@ -161,6 +164,8 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   
   const [roomId, setRoomId] = useState('');
   const roomIdRef = useRef('');
+  const isLeavingRef = useRef(false);
+  const pendingJoinHandlerRef = useRef<(() => void) | null>(null);
   const clientIdRef = useRef(
     localStorage.getItem("clientId") || crypto.randomUUID()
 );
@@ -252,6 +257,33 @@ useEffect(() => {
     );
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  const sendWebLog = async (
+    eventType: string,
+    message: string,
+    details: Record<string, unknown> = {},
+    level: 'info' | 'warn' | 'error' = 'info'
+  ) => {
+    try {
+      await fetch(`${API_BASE}/logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          eventType,
+          level,
+          message,
+          details,
+          roomId: roomIdRef.current || null,
+          scope: 'web'
+        })
+      });
+    } catch (err) {
+      console.warn('Failed to forward web log to backend:', err);
+    }
+  };
 
   const closePeerConnections = () => {
     peerConnectionsRef.current.forEach(pc => {
@@ -456,31 +488,35 @@ pendingCandidatesRef.current.delete(peerId);
   // Initialize socket connection on component mount
 
   useEffect(() => {
-    const navigation = performance.getEntriesByType(
-        "navigation"
-    )[0] as PerformanceNavigationTiming;
-
-    const isReload = navigation?.type === "reload";
-
-    if (!isReload) {
+    const reconnect = () => {
+      if (isLeavingRef.current) {
         return;
-    }
+      }
 
-    const room = sessionStorage.getItem("lastRoom");
-    const nickname = localStorage.getItem("fv_nickname");
+        const room = sessionStorage.getItem("lastRoom");
+        const nickname = localStorage.getItem("fv_nickname");
 
-    if (room && nickname) {
-        console.log("Rejoining after refresh...");
-        joinRoom(room, nickname);
-    }
-}, []);
+        if (room && nickname) {
+            console.log("Auto rejoining:", room);
+            joinRoom(room, nickname);
+        }
+    };
 
+    socket.on("connect", reconnect);
+
+    return () => {
+        socket.off("connect", reconnect);
+    };
+}, [socket]);
 
   useEffect(() => {
 
 
     socket.on('joined', ({ roomId: joinedRoomId, otherUsers, history }) => {
       console.log(`Joined room ${joinedRoomId}. Other users present:`, otherUsers);
+      void sendWebLog('ROOM_JOIN_CONFIRMED', `Joined room ${joinedRoomId}`, {
+        otherUsers: otherUsers?.length || 0
+      });
       setRoomId(joinedRoomId);
       roomIdRef.current = joinedRoomId;
       setIsConnecting(otherUsers ? otherUsers.length > 0 : false);
@@ -524,6 +560,10 @@ console.log("Waiting for existing peer to initiate WebRTC");
     socket.on('peer-joined', async ({ peerId, nickname }) => {
       const name = nickname || 'Friend';
       console.log(`Peer joined: ${peerId} (${name})`);
+      void sendWebLog('PEER_JOINED', `${name} joined the room`, {
+        peerId,
+        nickname: name
+      });
       setIsConnecting(true);
       setPeerDisconnected(false);
       setPeerNicknames(prev => ({ ...prev, [peerId]: name }));
@@ -551,6 +591,9 @@ console.log("Waiting for existing peer to initiate WebRTC");
 
     socket.on('peer-left', ({ peerId }) => {
       console.log(`Peer left the room: ${peerId}`);
+      void sendWebLog('PEER_LEFT', 'A peer left the room', {
+        peerId
+      });
       setPeerNicknames(prev => {
         const name = prev[peerId] || 'A friend';
         setChatMessages(chatPrev => [...chatPrev, {
@@ -572,6 +615,7 @@ console.log("Waiting for existing peer to initiate WebRTC");
 
     socket.on('room-full', () => {
       console.log('Room is full');
+      void sendWebLog('ROOM_FULL', 'Room capacity reached', {}, 'warn');
       setRoomFullError(true);
       setIsConnecting(false);
     });
@@ -834,6 +878,14 @@ console.log("Waiting for existing peer to initiate WebRTC");
   // Dispatch WebSocket Relays (replacing P2P RTCDataChannel)
   const sendDataChannelMsg = (type: string, payload: any) => {
     console.log("📤 EMIT:", type, payload, "Room:", roomIdRef.current);
+    void sendWebLog(
+      'ROOM_EVENT_EMIT',
+      `Emitted ${type} event`,
+      {
+        type,
+        payloadSummary: typeof payload === 'object' ? Object.keys(payload || {}) : payload
+      }
+    );
 
     if (type === 'chat') {
         socket.emit('chat', {
@@ -952,12 +1004,17 @@ console.log("Waiting for existing peer to initiate WebRTC");
 const createRoom = (nickname: string): string => {
     const newRoomId = generateRandomRoomId();
 
+  isLeavingRef.current = false;
+
     setMyNickname(nickname);
     setRoomFullError(false);
 
     setRoomId(newRoomId);
     roomIdRef.current = newRoomId;
     sessionStorage.setItem("lastRoom", newRoomId);
+    void sendWebLog('ROOM_CREATE_REQUESTED', `Created room ${newRoomId}`, {
+      nickname
+    });
     
     if (!socket.connected) {
         socket.connect();
@@ -982,34 +1039,67 @@ const createRoom = (nickname: string): string => {
 const joinRoom = (id: string, nickname: string) => {
     const upperId = id.trim().toUpperCase();
 
+  isLeavingRef.current = false;
+
     setMyNickname(nickname);
     setRoomFullError(false);
 
     setRoomId(upperId);
     roomIdRef.current = upperId;
-    sessionStorage.setItem("lastRoom", upperId);
-    if (!socket.connected) {
-        socket.connect();
-    }
 
-    initializeMedia()
-        .then((stream) => {
-            localStreamRef.current = stream;
-            setLocalStream(stream);
+    sessionStorage.setItem("lastRoom", upperId);
+    void sendWebLog('ROOM_JOIN_REQUESTED', `Joining room ${upperId}`, {
+      nickname
+    });
+
+    initializeMedia().then(stream => {
+      if (isLeavingRef.current || roomIdRef.current !== upperId) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+
+        const emitJoin = () => {
+          if (isLeavingRef.current || roomIdRef.current !== upperId) {
+            return;
+          }
+
+          pendingJoinHandlerRef.current = null;
 
             socket.emit("join-room", {
-    roomId: upperId,
-    nickname,
-    clientId: clientIdRef.current,
-});
-        })
-        .catch(console.error);
+                roomId: upperId,
+                nickname,
+                clientId: clientIdRef.current
+            });
+
+        };
+
+        if (socket.connected) {
+            emitJoin();
+        } else {
+          pendingJoinHandlerRef.current = emitJoin;
+            socket.once("connect", emitJoin);
+            socket.connect();
+        }
+
+    });
 };
   const leaveRoom = () => {
+    isLeavingRef.current = true;
+    if (pendingJoinHandlerRef.current) {
+      socket.off("connect", pendingJoinHandlerRef.current);
+      pendingJoinHandlerRef.current = null;
+    }
     localStorage.removeItem("lastRoom");
     sessionStorage.removeItem("lastRoom");
     socket.emit("leave-room", {
       roomId: roomIdRef.current,
+    });
+
+    void sendWebLog('ROOM_LEFT', 'Left room', {
+      roomId: roomIdRef.current || null
     });
 
     socket.disconnect();
@@ -1030,8 +1120,8 @@ const joinRoom = (id: string, nickname: string) => {
     localStorage.removeItem("lastRoom");
     sessionStorage.removeItem("lastRoom");
 
-    // Go back to home without room parameter
-    window.location.replace("/");
+    // Stay in the SPA and return to the landing screen without reloading.
+    window.history.replaceState({}, document.title, window.location.pathname);
   };
   // MEDIA CONTROLS
   const toggleAudio = () => {

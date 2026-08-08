@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Heart, Image, Palette, Gamepad2, FileText, Activity, 
-  Award, LogOut, Gift, Sparkles, MessageCircle, Video, ListCollapse, Bell, Zap, Flame, Star, Radio, AlertTriangle, Cpu 
+  Award, LogOut, Gift, Sparkles, MessageCircle, Video, ListCollapse, Bell, Zap, Flame, Star 
 } from 'lucide-react';
 import { useWebRTC } from '../context/WebRTCContext';
 import { VideoGrid } from './VideoGrid';
@@ -42,7 +42,7 @@ export const CelebrationRoom: React.FC = () => {
   ];
 
   return (
-    <div className="relative min-h-screen w-full bg-slate-950 flex flex-col z-10 select-none">
+    <div className="relative h-screen w-full bg-slate-950 flex flex-col overflow-hidden z-10 select-none">
       
       {/* GLOWING SURPRISE NOTIFICATION TOAST */}
       <AnimatePresence>
@@ -146,10 +146,10 @@ export const CelebrationRoom: React.FC = () => {
       </div>
 
       {/* CORE CONTENT LAYOUT */}
-      <main className="flex-1 w-full flex flex-col md:flex-row overflow-hidden relative z-10">
+      <main className="flex-1 min-h-0 w-full flex flex-col md:flex-row overflow-hidden relative z-10">
         
         {/* LEFT COLUMN: VIDEOS + DASHBOARD WIDGETS */}
-        <div className={`flex-1 overflow-y-auto p-4 md:p-6 space-y-6 ${
+        <div className={`flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 ${
           mobileViewMode === 'video' ? 'block md:block' : mobileViewMode === 'dashboard' ? 'block md:block' : 'hidden md:block'
         }`}>
           {/* Render video grid only in video mode (on mobile) or always on desktop */}
@@ -190,53 +190,6 @@ export const CelebrationRoom: React.FC = () => {
                 >
                   Share Joke
                 </button>
-              </div>
-            </div>
-
-            {/* Kafka Monitoring Dashboard */}
-            <div className="glass-panel p-4 rounded-xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-slate-900/70 to-purple-500/10">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Radio size={16} className="text-cyan-400" />
-                  <span className="text-sm font-bold text-white uppercase tracking-wider">Kafka Live Monitor</span>
-                </div>
-                <span className="text-[11px] text-cyan-300">Pub/sub health • live stream</span>
-              </div>
-              <div className="grid gap-3 lg:grid-cols-3">
-                <div className="rounded-lg border border-cyan-500/20 bg-slate-900/70 p-3">
-                  <div className="flex items-center gap-2 text-cyan-300 text-xs font-semibold uppercase tracking-wider">
-                    <Cpu size={13} /> Kafka Status
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-sm text-slate-200">Connected • topic active</span>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-purple-500/20 bg-slate-900/70 p-3">
-                  <div className="flex items-center gap-2 text-purple-300 text-xs font-semibold uppercase tracking-wider">
-                    <Zap size={13} /> Events Processed
-                  </div>
-                  <div className="mt-2 text-2xl font-bold text-white">24</div>
-                  <div className="text-[11px] text-slate-400">chat, reaction, memory, timeline</div>
-                </div>
-                <div className="rounded-lg border border-amber-500/20 bg-slate-900/70 p-3">
-                  <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold uppercase tracking-wider">
-                    <AlertTriangle size={13} /> Recent Errors
-                  </div>
-                  <div className="mt-2 text-sm text-slate-200">No critical errors • cluster healthy</div>
-                </div>
-              </div>
-              <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/70 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Live log stream</span>
-                  <span className="text-[10px] text-emerald-400">● streaming</span>
-                </div>
-                <div className="space-y-1 text-sm text-slate-300 max-h-28 overflow-y-auto pr-2">
-                  <div className="text-cyan-300">[12:34:10] Kafka producer connected</div>
-                  <div className="text-emerald-300">[12:34:12] room event published to friendverse-events</div>
-                  <div className="text-purple-300">[12:34:15] fan-out delivered to active room sockets</div>
-                  <div className="text-slate-400">[12:34:18] latency under threshold</div>
-                </div>
               </div>
             </div>
 
@@ -323,7 +276,7 @@ export const CelebrationRoom: React.FC = () => {
         </div>
 
         {/* RIGHT COLUMN: SIDEBAR LIVE CHAT PANEL */}
-        <div className={`w-full md:w-80 lg:w-96 border-l border-white/10 p-4 md:p-6 shrink-0 h-auto md:h-auto ${
+        <div className={`w-full md:w-80 lg:w-96 border-l border-white/10 p-4 md:p-6 shrink-0 h-auto md:h-auto flex flex-col min-h-0 overflow-hidden ${
           mobileViewMode === 'chat' ? 'block md:block' : 'hidden md:block'
         }`}>
           <ChatPanel />

@@ -17,12 +17,18 @@ export const ChatPanel: React.FC = () => {
   } = useWebRTC();
 
   const [inputText, setInputText] = useState('');
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<any>(null);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [chatMessages, peerTyping]);
 
   const handleSend = (e: React.FormEvent) => {
@@ -52,7 +58,7 @@ export const ChatPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full glass-panel rounded-2xl overflow-hidden border border-white/10 shadow-xl">
+    <div className="flex flex-col h-full min-h-0 glass-panel rounded-2xl overflow-hidden border border-white/10 shadow-xl">
       {/* Panel Header */}
       <div className="px-6 py-4 bg-slate-900/40 border-b border-white/10 flex items-center justify-between">
         <h3 className="font-bold text-lg font-display text-white flex items-center gap-2">
@@ -62,7 +68,7 @@ export const ChatPanel: React.FC = () => {
       </div>
 
       {/* Preset Reactions Tray */}
-      <div className="px-6 py-3 bg-slate-950/20 border-b border-white/5 flex items-center gap-3">
+      <div className="px-4 py-2.5 bg-slate-950/20 border-b border-white/5 flex items-center gap-3 flex-wrap">
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">React:</span>
         <div className="flex items-center gap-2">
           {PRESET_EMOJIS.map((emoji) => (
@@ -80,9 +86,9 @@ export const ChatPanel: React.FC = () => {
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-[250px]">
+      <div ref={messagesScrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 md:px-5 md:py-4 space-y-3">
         {chatMessages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-4">
+          <div className="min-h-full flex flex-col items-center justify-center text-center p-3">
             <div className="w-12 h-12 rounded-full glass-panel-light flex items-center justify-center text-purple-400 mb-3">
               <Smile size={24} />
             </div>
@@ -152,11 +158,10 @@ export const ChatPanel: React.FC = () => {
             </span>
           </div>
         )}
-        <div ref={chatEndRef} />
       </div>
 
       {/* Input Form */}
-      <div className="p-4 bg-slate-900/40 border-t border-white/10">
+      <div className="p-3 md:p-4 bg-slate-900/40 border-t border-white/10">
         {!isConnected ? (
           <div className="flex items-center gap-2 p-2 text-amber-300 bg-amber-500/10 rounded-lg text-xs font-medium border border-amber-500/25">
             <Info size={14} className="shrink-0" />
